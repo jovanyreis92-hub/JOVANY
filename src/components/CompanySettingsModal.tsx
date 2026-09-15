@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, 
   Upload, 
@@ -10,10 +10,13 @@ import {
   Lock,
   Eye,
   EyeOff,
-  AlertCircle
+  AlertCircle,
+  Type,
+  Maximize2
 } from 'lucide-react';
-import { CompanySettings } from '../types';
-import { saveCompanySettings, updateAdminPassword } from '../utils/storage';
+import { CompanySettings, LayoutFontFamily, LayoutScaleSize } from '../types';
+import { saveCompanySettings } from '../utils/storage';
+import { FONT_OPTIONS, SCALE_OPTIONS, applyLayoutPreferences } from '../utils/theme';
 
 interface CompanySettingsModalProps {
   isOpen: boolean;
@@ -70,9 +73,23 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
   const [showPasswordText, setShowPasswordText] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
+  // Fonte e Escala do Layout
+  const [selectedFont, setSelectedFont] = useState<LayoutFontFamily>(currentSettings.fontFamily || 'inter');
+  const [selectedScale, setSelectedScale] = useState<LayoutScaleSize>(currentSettings.layoutScale || 'normal');
+
+  useEffect(() => {
+    setSelectedFont(currentSettings.fontFamily || 'inter');
+    setSelectedScale(currentSettings.layoutScale || 'normal');
+  }, [currentSettings.fontFamily, currentSettings.layoutScale, isOpen]);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!isOpen) return null;
+
+  const handleCancel = () => {
+    applyLayoutPreferences(currentSettings.fontFamily, currentSettings.layoutScale);
+    onClose();
+  };
 
   // Processa a imagem enviada, redimensionando via canvas para tamanho ideal
   const processImageFile = (file: File) => {
@@ -195,9 +212,12 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
       logoUrl: logoUrl,
       adminUsername: finalUsername,
       adminPassword: finalPassword,
+      fontFamily: selectedFont,
+      layoutScale: selectedScale,
     };
 
     saveCompanySettings(updated);
+    applyLayoutPreferences(selectedFont, selectedScale);
     onSaved(updated);
     onClose();
   };
@@ -207,10 +227,10 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
       id="company-settings-modal"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleCancel();
       }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 my-8 animate-in fade-in zoom-in duration-150">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200 my-8 animate-in fade-in zoom-in duration-150">
         {/* Cabeçalho */}
         <div className="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-slate-800">
           <div className="flex items-center gap-3">
@@ -219,16 +239,16 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white">
-                Personalização da Empresa
+                Personalização da Empresa & Layout
               </h2>
               <p className="text-xs text-slate-400">
-                Logomarca, nome da empresa e credenciais
+                Logomarca, fonte, proporção do layout e credenciais
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCancel}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             aria-label="Fechar"
           >
@@ -380,6 +400,154 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
             </div>
           </div>
 
+          {/* Seção: Tipografia & Tamanho do Layout */}
+          <div className="pt-3 border-t border-slate-100 space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center">
+                <Type className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Fonte & Tamanho do Layout
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Altere a tipografia de todo o sistema e a escala visual dos elementos
+                </p>
+              </div>
+            </div>
+
+            {/* Seleção de Família de Fonte */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-700">
+                  Família da Fonte
+                </label>
+                <span className="text-[11px] font-bold text-sky-700 bg-sky-100 px-2 py-0.5 rounded-full">
+                  {FONT_OPTIONS.find((f) => f.id === selectedFont)?.name} ({FONT_OPTIONS.find((f) => f.id === selectedFont)?.category})
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {FONT_OPTIONS.map((font) => {
+                  const isSelected = selectedFont === font.id;
+                  return (
+                    <button
+                      key={font.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedFont(font.id);
+                        applyLayoutPreferences(font.id, selectedScale);
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer relative flex flex-col justify-between ${
+                        isSelected
+                          ? 'border-sky-500 bg-sky-50/70 shadow-xs ring-2 ring-sky-500/20'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="text-xs font-bold text-slate-900 truncate">
+                          {font.name}
+                        </span>
+                        {isSelected && (
+                          <span className="h-4 w-4 rounded-full bg-sky-600 text-white flex items-center justify-center shrink-0">
+                            <Check className="h-2.5 w-2.5" />
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-500 block mb-1.5">
+                        {font.category}
+                      </span>
+                      <div
+                        className="text-xs text-slate-800 font-medium py-1 px-1.5 bg-white rounded border border-slate-200/80 truncate"
+                        style={{ fontFamily: font.cssFamily }}
+                        title={font.preview}
+                      >
+                        {font.preview}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Seleção de Tamanho / Escala do Layout */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-700">
+                  Tamanho / Proporção do Layout
+                </label>
+                <span className="text-[11px] font-bold text-sky-700 bg-sky-100 px-2 py-0.5 rounded-full">
+                  {SCALE_OPTIONS.find((s) => s.id === selectedScale)?.percentage} ({SCALE_OPTIONS.find((s) => s.id === selectedScale)?.name})
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {SCALE_OPTIONS.map((scale) => {
+                  const isSelected = selectedScale === scale.id;
+                  return (
+                    <button
+                      key={scale.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedScale(scale.id);
+                        applyLayoutPreferences(selectedFont, scale.id);
+                      }}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer relative flex flex-col items-center justify-between gap-1 ${
+                        isSelected
+                          ? 'border-sky-500 bg-sky-50/70 shadow-xs ring-2 ring-sky-500/20'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="text-xs font-bold text-slate-900">
+                        {scale.name}
+                      </span>
+                      <span className="text-[11px] font-mono font-bold text-sky-700">
+                        {scale.percentage}
+                      </span>
+                      <span className="text-[9px] text-slate-500 leading-tight">
+                        {scale.badge}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Caixa de Demonstração / Prévia ao Vivo */}
+            <div className="p-3.5 bg-slate-900 text-white rounded-xl border border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold flex items-center gap-1.5">
+                  <Sparkles className="h-3 w-3 text-sky-400" />
+                  Prévia em Tempo Real
+                </span>
+                <span className="text-[10px] text-sky-300 font-medium">
+                  {FONT_OPTIONS.find((f) => f.id === selectedFont)?.name} • {SCALE_OPTIONS.find((s) => s.id === selectedScale)?.percentage}
+                </span>
+              </div>
+              <div 
+                className="p-3 bg-slate-800/90 rounded-lg border border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5"
+                style={{
+                  fontFamily: FONT_OPTIONS.find((f) => f.id === selectedFont)?.cssFamily,
+                }}
+              >
+                <div>
+                  <div className="text-xs font-bold text-white">
+                    {companyName || 'Minha Empresa'} — {eventName || 'Evento Corporativo'}
+                  </div>
+                  <div className="text-[11px] text-slate-300 mt-0.5">
+                    Exemplo: Carlos Eduardo Silva (Matrícula: 1001)
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Presente
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-sky-600 text-white shadow-xs">
+                    Credenciado
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Seção: Segurança e Credenciais (Login e Senha) */}
           <div className="pt-3 border-t border-slate-100">
             <button
@@ -472,7 +640,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
           <button
             id="btn-cancel-company-settings"
             type="button"
-            onClick={onClose}
+            onClick={handleCancel}
             className="py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
           >
             Cancelar

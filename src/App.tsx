@@ -5,13 +5,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { ActiveTab, Participant, CompanySettings } from './types';
-import { getStoredParticipants, getCompanySettings } from './utils/storage';
+import { getStoredParticipants, getCompanySettings, initMultiDeviceSync } from './utils/storage';
+import { applyLayoutPreferences } from './utils/theme';
 import { Header } from './components/Header';
 import { RegistrationForm } from './components/RegistrationForm';
-import { QrScanner } from './components/QrScanner';
 import { AdminPanel } from './components/AdminPanel';
 import { CompanySettingsModal } from './components/CompanySettingsModal';
-import { UserPlus, QrCode, ShieldCheck, CheckCircle2, Building2 } from 'lucide-react';
+import { MobileShareModal } from './components/MobileShareModal';
+import { UserPlus, ShieldCheck, CheckCircle2, Share2 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('register');
@@ -19,6 +20,7 @@ export default function App() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
   const [companySettings, setCompanySettings] = useState<CompanySettings>(getCompanySettings());
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState<boolean>(false);
+  const [isMobileShareOpen, setIsMobileShareOpen] = useState<boolean>(false);
 
   // Carrega e sincroniza os participantes
   const reloadParticipants = () => {
@@ -29,9 +31,29 @@ export default function App() {
     setCompanySettings(getCompanySettings());
   };
 
+  // Aplica fonte e escala do layout
   useEffect(() => {
+    applyLayoutPreferences(companySettings.fontFamily, companySettings.layoutScale);
+  }, [companySettings.fontFamily, companySettings.layoutScale]);
+
+  useEffect(() => {
+    // Detecta parâmetro de aba na URL (?tab=register / admin)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam === 'register' || tabParam === 'admin') {
+        setActiveTab(tabParam as ActiveTab);
+      } else if (tabParam === 'scanner') {
+        // Leitor QR agora fica dentro do painel administrativo
+        setActiveTab('admin');
+      }
+    }
+
     reloadParticipants();
     reloadCompanySettings();
+
+    // Inicializa a sincronização em tempo real multi-celulares (SSE + Polling de resiliência)
+    const stopSync = initMultiDeviceSync();
 
     const handleUpdate = () => {
       reloadParticipants();
@@ -46,6 +68,7 @@ export default function App() {
     window.addEventListener('company-settings-updated', handleCompanyUpdate);
 
     return () => {
+      stopSync();
       window.removeEventListener('participants-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
       window.removeEventListener('company-settings-updated', handleCompanyUpdate);
@@ -54,6 +77,13 @@ export default function App() {
 
   const total = participants.length;
   const attendedCount = participants.filter((p) => p.attended).length;
+
+  const handleHeaderLogout = () => {
+    if (isAdminAuthenticated) {
+      setIsAdminAuthenticated(false);
+    }
+    setActiveTab('register');
+  };
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans antialiased selection:bg-sky-500 selection:text-white">
@@ -64,32 +94,23 @@ export default function App() {
         participants={participants}
         isAdminAuthenticated={isAdminAuthenticated}
         companySettings={companySettings}
-        onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
+        onOpenMobileShare={() => setIsMobileShareOpen(true)}
+        onLogout={handleHeaderLogout}
       />
 
       {/* Conteúdo Principal conforme a aba ativa */}
       <main className="flex-1 pb-16 sm:pb-8">
-        {activeTab === 'register' && (
+        <div className={activeTab === 'register' ? 'block' : 'hidden'}>
           <RegistrationForm
             onParticipantAdded={() => {
               reloadParticipants();
             }}
-            onNavigateToScanner={() => setActiveTab('scanner')}
             companySettings={companySettings}
-            onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
+            onOpenMobileShare={() => setIsMobileShareOpen(true)}
           />
-        )}
+        </div>
 
-        {activeTab === 'scanner' && (
-          <QrScanner
-            onAttendanceMarked={() => {
-              reloadParticipants();
-            }}
-            onNavigateToAdmin={() => setActiveTab('admin')}
-          />
-        )}
-
-        {activeTab === 'admin' && (
+        <div className={activeTab === 'admin' ? 'block' : 'hidden'}>
           <AdminPanel
             participants={participants}
             isAuthenticated={isAdminAuthenticated}
@@ -98,8 +119,9 @@ export default function App() {
             onUpdateParticipants={reloadParticipants}
             companySettings={companySettings}
             onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
+            onOpenMobileShare={() => setIsMobileShareOpen(true)}
           />
-        )}
+        </div>
       </main>
 
       {/* Barra de Navegação Inferior Fixa para Dispositivos Móveis */}
@@ -117,21 +139,6 @@ export default function App() {
         </button>
 
         <button
-          id="mobile-tab-scanner"
-          type="button"
-          onClick={() => setActiveTab('scanner')}
-          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
-            activeTab === 'scanner' ? 'text-sky-600 font-bold' : 'text-slate-500'
-          }`}
-        >
-          <div className="relative">
-            <QrCode className="h-5 w-5" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full"></span>
-          </div>
-          <span>Leitor QR</span>
-        </button>
-
-        <button
           id="mobile-tab-admin"
           type="button"
           onClick={() => setActiveTab('admin')}
@@ -145,18 +152,18 @@ export default function App() {
               <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full"></span>
             )}
           </div>
-          <span>Admin</span>
+          <span>Painel Admin</span>
         </button>
 
-        {/* Botão de logo no mobile */}
+        {/* Botão de Compartilhar no mobile */}
         <button
-          id="mobile-tab-logo"
+          id="mobile-tab-share"
           type="button"
-          onClick={() => setIsCompanyModalOpen(true)}
+          onClick={() => setIsMobileShareOpen(true)}
           className="flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
         >
-          <Building2 className="h-5 w-5 text-sky-600" />
-          <span>Empresa</span>
+          <Share2 className="h-5 w-5 text-slate-600" />
+          <span>Compartilhar</span>
         </button>
       </div>
 
@@ -176,6 +183,13 @@ export default function App() {
           </p>
         </div>
       </footer>
+
+      {/* Modal de Compartilhamento para Múltiplos Celulares e Redes (4G/5G/Wi-Fi) */}
+      <MobileShareModal
+        isOpen={isMobileShareOpen}
+        onClose={() => setIsMobileShareOpen(false)}
+        companySettings={companySettings}
+      />
 
       {/* Modal de Personalização da Empresa e Logomarca */}
       <CompanySettingsModal

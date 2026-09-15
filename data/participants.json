@@ -1,0 +1,47 @@
+[
+  {
+    "id": "part_1",
+    "fullName": "Carlos Eduardo Silva",
+    "registrationNumber": "MAT-1001",
+    "company": "Tech Solutions Brasil",
+    "createdAt": "2026-09-13T21:36:03.584Z",
+    "attended": true,
+    "attendedAt": "2026-09-15T19:36:03.585Z"
+  },
+  {
+    "id": "part_2",
+    "fullName": "Mariana Albuquerque Costa",
+    "registrationNumber": "MAT-1002",
+    "company": "Inovação Digital Ltda",
+    "createdAt": "2026-09-14T21:36:03.585Z",
+    "attended": false,
+    "attendedAt": null
+  },
+  {
+    "id": "part_3",
+    "fullName": "Roberto Fernando Mendes",
+    "registrationNumber": "MAT-1003",
+    "company": "PetroSoft Engenharia",
+    "createdAt": "2026-09-15T03:36:03.585Z",
+    "attended": true,
+    "attendedAt": "2026-09-15T20:36:03.585Z"
+  },
+  {
+    "id": "part_4",
+    "fullName": "Juliana Beatriz Santos",
+    "registrationNumber": "MAT-1004",
+    "company": "Global Logística",
+    "createdAt": "2026-09-15T09:36:03.585Z",
+    "attended": false,
+    "attendedAt": null
+  },
+  {
+    "id": "part_5",
+    "fullName": "Lucas Gabriel Oliveira",
+    "registrationNumber": "MAT-1005",
+    "company": "Nexus Consultoria",
+    "createdAt": "2026-09-15T15:36:03.585Z",
+    "attended": false,
+    "attendedAt": null
+  }
+]

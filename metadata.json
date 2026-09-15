@@ -1,6 +1,6 @@
 {
   "name": "Registro de Participantes e Controle de Presença QR",
-  "description": "Aplicativo de registro de participantes, geração e download de QR Code individual, leitor de presença por câmera e painel administrativo protegido por senha com exportação em PDF e Excel.",
+  "description": "Aplicativo de registro de participantes, gestão de eventos múltiplos, geração de QR Code individual, leitor de presença por câmera no painel administrativo, personalização de fonte e tamanho do layout, e exportação em Excel e PDF com realce visual da situação de presença.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   ShieldCheck, 
   Lock, 
@@ -11,7 +11,6 @@ import {
   CheckCircle, 
   XCircle, 
   RefreshCw, 
-  LogOut, 
   Users, 
   Building2, 
   Hash, 
@@ -23,9 +22,14 @@ import {
   EyeOff,
   ImageIcon,
   User,
-  UserCheck
+  UserCheck,
+  Share2,
+  Camera,
+  Palette,
+  Calendar,
+  Filter
 } from 'lucide-react';
-import { Participant, CompanySettings } from '../types';
+import { Participant, CompanySettings, EventItem } from '../types';
 import { 
   deleteParticipant, 
   deleteMultipleParticipants, 
@@ -33,11 +37,14 @@ import {
   resetToDemoData,
   verifyAdminCredentials,
   registerAdminCredentials,
-  verifyAdminPassword 
+  verifyAdminPassword,
+  getStoredEvents
 } from '../utils/storage';
 import { exportToExcel, exportToPDF } from '../utils/export';
 import { QrBadgeModal } from './QrBadgeModal';
 import { AdminCredentialsModal } from './AdminCredentialsModal';
+import { QrScanner } from './QrScanner';
+import { EventManager } from './EventManager';
 
 interface AdminPanelProps {
   participants: Participant[];
@@ -47,6 +54,7 @@ interface AdminPanelProps {
   onUpdateParticipants: () => void;
   companySettings?: CompanySettings;
   onOpenCompanySettings?: () => void;
+  onOpenMobileShare?: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -57,6 +65,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateParticipants,
   companySettings,
   onOpenCompanySettings,
+  onOpenMobileShare,
 }) => {
   // Estado de autenticação do painel (Login vs Registro)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -91,6 +100,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Notificação temporária de ação
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
+
+  // Sub-Aba do Painel Admin (Participantes vs Leitor QR vs Gestão de Eventos)
+  const [adminSubTab, setAdminSubTab] = useState<'participants' | 'scanner' | 'events'>('participants');
+
+  // Lista de eventos e filtro de evento
+  const [eventsList, setEventsList] = useState<EventItem[]>(() => getStoredEvents());
+  const [eventFilter, setEventFilter] = useState<string>('all');
+
+  useEffect(() => {
+    const handleEventsUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<EventItem[]>;
+      if (customEvent.detail && Array.isArray(customEvent.detail)) {
+        setEventsList(customEvent.detail);
+      } else {
+        setEventsList(getStoredEvents());
+      }
+    };
+
+    window.addEventListener('events-updated', handleEventsUpdated);
+    return () => window.removeEventListener('events-updated', handleEventsUpdated);
+  }, []);
 
   const showToast = (text: string, type: 'success' | 'info' = 'success') => {
     setToastMessage({ text, type });
@@ -150,11 +180,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     onUpdateParticipants();
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setPasswordInput('');
-  };
-
   // Exclusão de participante individual
   const handleConfirmDelete = () => {
     if (!participantToDelete) return;
@@ -195,7 +220,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const matchesSearch =
         p.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.registrationNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.company.toLowerCase().includes(searchTerm.toLowerCase());
+        p.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.eventName && p.eventName.toLowerCase().includes(searchTerm.toLowerCase()));
 
       // Filtro de status
       const matchesStatus =
@@ -205,9 +231,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           ? p.attended
           : !p.attended;
 
-      return matchesSearch && matchesStatus;
+      // Filtro de evento
+      const matchesEvent =
+        eventFilter === 'all'
+          ? true
+          : p.eventId === eventFilter ||
+            (!p.eventId && eventsList.find((e) => e.id === eventFilter)?.active);
+
+      return matchesSearch && matchesStatus && matchesEvent;
     });
-  }, [participants, searchTerm, statusFilter]);
+  }, [participants, searchTerm, statusFilter, eventFilter, eventsList]);
 
   // Manipulação da seleção múltipla
   const isAllFilteredSelected =
@@ -246,21 +279,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return participants.filter((p) => set.has(p.id));
   }, [participants, selectedIds]);
 
-  // Estatísticas
-  const total = participants.length;
-  const presentCount = participants.filter((p) => p.attended).length;
+  // Estatísticas baseadas no filtro atual
+  const total = filteredParticipants.length;
+  const presentCount = filteredParticipants.filter((p) => p.attended).length;
   const absentCount = total - presentCount;
   const attendanceRate = total > 0 ? ((presentCount / total) * 100).toFixed(1) : '0';
 
+  // Determina nome de arquivo para exportação
+  const getExportBaseName = () => {
+    if (eventFilter !== 'all') {
+      const targetEvent = eventsList.find((e) => e.id === eventFilter);
+      if (targetEvent) {
+        return `lista-presenca-${targetEvent.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+      }
+    }
+    return 'lista-presenca-geral';
+  };
+
   // Exportações
   const handleExportExcel = () => {
-    exportToExcel(participants, 'lista-presenca-evento');
-    showToast('Planilha Excel (.xlsx) gerada e baixada!', 'success');
+    const targetList = eventFilter === 'all' ? participants : filteredParticipants;
+    exportToExcel(targetList, getExportBaseName());
+    showToast('Planilha Excel (.xlsx) gerada e baixada com sucesso!', 'success');
   };
 
   const handleExportPDF = () => {
-    exportToPDF(participants, 'lista-presenca-evento');
-    showToast('Relatório em PDF (.pdf) gerado e baixado!', 'success');
+    const targetList = eventFilter === 'all' ? participants : filteredParticipants;
+    exportToPDF(targetList, getExportBaseName());
+    showToast('Relatório em PDF (.pdf) gerado e baixado com sucesso!', 'success');
   };
 
   const handleResetDemo = () => {
@@ -581,16 +627,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <span>Login e Senha</span>
           </button>
 
+          {onOpenMobileShare && (
+            <button
+              id="btn-admin-mobile-share"
+              type="button"
+              onClick={onOpenMobileShare}
+              className="flex items-center gap-1.5 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              title="Exibir QR Code e link para compartilhamento da página de inscrição"
+            >
+              <Share2 className="h-4 w-4 text-slate-600" />
+              <span>Compartilhar Link</span>
+            </button>
+          )}
+
           {onOpenCompanySettings && (
             <button
               id="btn-admin-customize-company"
               type="button"
               onClick={onOpenCompanySettings}
-              className="flex items-center gap-1.5 py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-              title="Personalizar logomarca e dados da empresa"
+              className="flex items-center gap-1.5 py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              title="Personalizar layout, nome do evento e logomarca da empresa"
             >
-              <ImageIcon className="h-4 w-4 text-sky-600" />
-              <span>Logomarca da Empresa</span>
+              <Palette className="h-4 w-4 text-amber-600" />
+              <span>Layout & Logomarca</span>
             </button>
           )}
 
@@ -615,20 +674,96 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <FileText className="h-4 w-4" />
             <span>Exportar PDF</span>
           </button>
-
-          <button
-            id="btn-admin-logout"
-            type="button"
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
-            title="Bloquear painel"
-          >
-            <LogOut className="h-4 w-4" />
-            <span>Sair</span>
-          </button>
         </div>
       </div>
 
+      {/* Seletor de Sub-Abas do Painel Administrativo: Participantes vs Leitor QR */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/90 shadow-xs">
+        <div className="flex items-center gap-2">
+          <button
+            id="btn-admin-subtab-participants"
+            type="button"
+            onClick={() => setAdminSubTab('participants')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              adminSubTab === 'participants'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:text-slate-900 hover:bg-slate-200'
+            }`}
+          >
+            <Users className="h-4 w-4" />
+            <span>Lista de Participantes</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+                adminSubTab === 'participants' ? 'bg-sky-700 text-white' : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              {total}
+            </span>
+          </button>
+
+          <button
+            id="btn-admin-subtab-scanner"
+            type="button"
+            onClick={() => setAdminSubTab('scanner')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              adminSubTab === 'scanner'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:text-slate-900 hover:bg-slate-200'
+            }`}
+          >
+            <Camera className="h-4 w-4" />
+            <span>Leitor de Presença QR</span>
+            <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          </button>
+
+          <button
+            id="btn-admin-subtab-events"
+            type="button"
+            onClick={() => setAdminSubTab('events')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              adminSubTab === 'events'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:text-slate-900 hover:bg-slate-200'
+            }`}
+          >
+            <Calendar className="h-4 w-4" />
+            <span>Gestão de Eventos</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+                adminSubTab === 'events' ? 'bg-sky-700 text-white' : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              {eventsList.length}
+            </span>
+          </button>
+        </div>
+
+        <div className="text-xs text-slate-500 hidden md:block">
+          {adminSubTab === 'scanner'
+            ? 'Câmera e validação ativa de credenciais'
+            : adminSubTab === 'events'
+            ? 'Criação, ativação e relatórios por evento'
+            : 'Filtros, busca e relatórios de presença'}
+        </div>
+      </div>
+
+      {/* Sub-Aba: Leitor de Presença QR (Exclusivo Admin) */}
+      {adminSubTab === 'scanner' && (
+        <div className="pt-1">
+          <QrScanner
+            isActive={adminSubTab === 'scanner'}
+            onAttendanceMarked={(p) => {
+              onUpdateParticipants();
+              showToast(`Presença confirmada: ${p.fullName} (${p.registrationNumber})`, 'success');
+            }}
+            onNavigateToAdmin={() => setAdminSubTab('participants')}
+          />
+        </div>
+      )}
+
+      {/* Sub-Aba: Lista de Participantes e Relatórios */}
+      {adminSubTab === 'participants' && (
+        <>
       {/* Cards de Métricas / KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Total */}
@@ -733,6 +868,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             Ausentes ({absentCount})
           </button>
+        </div>
+
+        {/* Filtro por Evento */}
+        <div className="flex items-center gap-1.5 bg-slate-100 py-1.5 px-3 rounded-xl self-stretch sm:self-auto border border-slate-200">
+          <Calendar className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+          <label htmlFor="select-admin-event-filter" className="sr-only">Filtrar por evento</label>
+          <select
+            id="select-admin-event-filter"
+            value={eventFilter}
+            onChange={(e) => setEventFilter(e.target.value)}
+            className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer max-w-[160px] truncate"
+            title="Filtrar lista de participantes por evento"
+          >
+            <option value="all">Todos os Eventos</option>
+            {eventsList.map((evt) => (
+              <option key={evt.id} value={evt.id}>
+                {evt.name} {evt.active ? '(Ativo)' : ''}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Botão para Novo Cadastro Rápido e Tecla de Seleção Múltipla */}
@@ -848,6 +1003,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <th className="py-3 px-4">Participante</th>
                 <th className="py-3 px-4">Matrícula</th>
                 <th className="py-3 px-4">Empresa</th>
+                <th className="py-3 px-4">Evento</th>
                 <th className="py-3 px-4 text-center">Presença</th>
                 <th className="py-3 px-4">Horário de Presença</th>
                 <th className="py-3 px-4 text-right">Ações</th>
@@ -856,7 +1012,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <tbody className="divide-y divide-slate-100">
               {filteredParticipants.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     Nenhum participante encontrado com os filtros selecionados.
                   </td>
                 </tr>
@@ -907,6 +1063,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                           <span className="truncate max-w-[180px]">{p.company}</span>
                         </div>
+                      </td>
+
+                      {/* Evento */}
+                      <td className="py-3 px-4 text-slate-700">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200">
+                          <Calendar className="h-3 w-3 text-sky-600 shrink-0" />
+                          <span className="truncate max-w-[140px]" title={p.eventName || 'Evento Geral'}>
+                            {p.eventName || 'Evento Geral'}
+                          </span>
+                        </span>
                       </td>
 
                       {/* Status de Presença */}
@@ -1002,6 +1168,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Sub-Aba: Gestão de Eventos */}
+      {adminSubTab === 'events' && (
+        <EventManager
+          participants={participants}
+          onUpdateParticipants={onUpdateParticipants}
+          onShowToast={showToast}
+          companySettings={companySettings}
+        />
+      )}
 
       {/* Modal de Exibição / Download do QR Code Individual */}
       {selectedParticipantForQr && (

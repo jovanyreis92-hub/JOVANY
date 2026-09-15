@@ -1,31 +1,56 @@
-import React, { useState } from 'react';
-import { User, Hash, Building2, UserPlus, CheckCircle, ArrowRight, QrCode, Sparkles, ImageIcon } from 'lucide-react';
-import { Participant, CompanySettings } from '../types';
-import { addParticipant } from '../utils/storage';
+import React, { useState, useEffect } from 'react';
+import { User, Hash, Building2, UserPlus, CheckCircle, QrCode, Sparkles, Calendar, MapPin } from 'lucide-react';
+import { Participant, CompanySettings, EventItem } from '../types';
+import { addParticipant, getStoredEvents, getActiveEvent } from '../utils/storage';
 import { QrBadgeModal } from './QrBadgeModal';
 
 interface RegistrationFormProps {
   onParticipantAdded: (participant: Participant) => void;
-  onNavigateToScanner: () => void;
   companySettings?: CompanySettings;
-  onOpenCompanySettings?: () => void;
+  onOpenMobileShare?: () => void;
 }
 
 export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   onParticipantAdded,
-  onNavigateToScanner,
   companySettings,
-  onOpenCompanySettings,
+  onOpenMobileShare,
 }) => {
   const [fullName, setFullName] = useState('');
   const [registrationNumber, setRegistrationNumber] = useState('');
   const [company, setCompany] = useState('');
+  const [events, setEvents] = useState<EventItem[]>(() => getStoredEvents());
+  const [selectedEventId, setSelectedEventId] = useState<string>(() => {
+    const active = getActiveEvent();
+    return active?.id || 'event_1';
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sincroniza eventos quando atualizados
+  useEffect(() => {
+    const handleEventsUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<EventItem[]>;
+      if (customEvent.detail && Array.isArray(customEvent.detail)) {
+        setEvents(customEvent.detail);
+        if (!customEvent.detail.some((item) => item.id === selectedEventId)) {
+          const active = customEvent.detail.find((i) => i.active) || customEvent.detail[0];
+          if (active) setSelectedEventId(active.id);
+        }
+      } else {
+        const fresh = getStoredEvents();
+        setEvents(fresh);
+      }
+    };
+
+    window.addEventListener('events-updated', handleEventsUpdated);
+    return () => window.removeEventListener('events-updated', handleEventsUpdated);
+  }, [selectedEventId]);
 
   // Modal para exibir e baixar o QR code recém-gerado
   const [createdParticipant, setCreatedParticipant] = useState<Participant | null>(null);
   const [showModal, setShowModal] = useState(false);
+
+  const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,8 +60,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
       setErrorMessage('Por favor, informe o nome completo.');
       return;
     }
-    if (!registrationNumber.trim()) {
-      setErrorMessage('Por favor, informe o número de matrícula.');
+    const cleanRegistration = registrationNumber.replace(/\D/g, '').trim();
+    if (!cleanRegistration) {
+      setErrorMessage('Por favor, informe o número de matrícula (somente números).');
       return;
     }
     if (!company.trim()) {
@@ -48,8 +74,10 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
 
     const result = addParticipant({
       fullName,
-      registrationNumber,
+      registrationNumber: cleanRegistration,
       company,
+      eventId: selectedEvent?.id,
+      eventName: selectedEvent?.name,
     });
 
     setIsSubmitting(false);
@@ -91,7 +119,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
     const randomComp = companies[Math.floor(Math.random() * companies.length)];
 
     setFullName(randomName);
-    setRegistrationNumber(`MAT-${randomId}`);
+    setRegistrationNumber(String(randomId));
     setCompany(randomComp);
     setErrorMessage(null);
   };
@@ -115,18 +143,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              {onOpenCompanySettings && (
-                <button
-                  type="button"
-                  onClick={onOpenCompanySettings}
-                  className="text-xs text-slate-300 hover:text-white flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 transition-colors border border-slate-700 cursor-pointer"
-                  title="Trocar Logomarca da Empresa"
-                >
-                  <ImageIcon className="h-3.5 w-3.5 text-sky-400" />
-                  <span className="hidden sm:inline">Logomarca</span>
-                </button>
-              )}
-
               <button
                 id="btn-fill-example"
                 type="button"
@@ -146,8 +162,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 Cadastro de Participante
               </h2>
               <p className="text-slate-300 text-sm mt-1">
-                {companySettings?.eventName 
-                  ? `${companySettings.eventName} • Preencha os dados para gerar sua credencial com QR Code.`
+                {selectedEvent 
+                  ? `${selectedEvent.name} • Preencha os dados para gerar sua credencial com QR Code.`
                   : 'Preencha os dados abaixo para gerar instantaneamente seu QR Code individual de credenciamento.'}
               </p>
             </div>
@@ -177,6 +193,46 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             </div>
           )}
 
+          {/* Seletor de Evento */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="select-event"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-1.5"
+            >
+              <Calendar className="h-3.5 w-3.5 text-sky-600" />
+              <span>Evento Destinado</span> <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <select
+                id="select-event"
+                value={selectedEventId}
+                onChange={(e) => setSelectedEventId(e.target.value)}
+                className="w-full pl-3.5 pr-8 py-2.5 bg-slate-50/70 border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm font-medium cursor-pointer"
+              >
+                {events.map((evt) => (
+                  <option key={evt.id} value={evt.id}>
+                    {evt.name} {evt.date ? `(${new Date(evt.date + 'T12:00:00').toLocaleDateString('pt-BR')})` : ''} {evt.active ? '★ [Ativo]' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedEvent && (
+              <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-0.5">
+                {selectedEvent.location && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-3 w-3 text-slate-400" />
+                    {selectedEvent.location}
+                  </span>
+                )}
+                {selectedEvent.description && (
+                  <span className="truncate max-w-[300px]">
+                    • {selectedEvent.description}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Nome Completo */}
           <div className="space-y-1.5">
             <label
@@ -201,13 +257,13 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             </div>
           </div>
 
-          {/* Número de Matrícula */}
+          {/* Número de Matrícula (Somente Números) */}
           <div className="space-y-1.5">
             <label
               htmlFor="input-registrationNumber"
               className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
             >
-              Número de Matrícula <span className="text-rose-500">*</span>
+              Número de Matrícula (Apenas Números) <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -216,15 +272,17 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               <input
                 id="input-registrationNumber"
                 type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={registrationNumber}
-                onChange={(e) => setRegistrationNumber(e.target.value)}
-                placeholder="Ex: MAT-2024-089"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm font-mono"
+                onChange={(e) => setRegistrationNumber(e.target.value.replace(/\D/g, ''))}
+                placeholder="Ex: 10452"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm font-mono tracking-wider"
                 required
               />
             </div>
             <p className="text-[11px] text-slate-500">
-              Identificador individual utilizado para validação na portaria.
+              Digite apenas números (Ex: 10452). Identificador individual utilizado para validação na portaria.
             </p>
           </div>
 
@@ -258,7 +316,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               id="btn-submit-registration"
               type="submit"
               disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3 px-6 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl font-semibold text-sm transition-all shadow-sm shadow-sky-600/20 hover:shadow-md disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 py-3 px-6 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl font-semibold text-sm transition-all shadow-sm shadow-sky-600/20 hover:shadow-md disabled:opacity-50 cursor-pointer"
             >
               <QrCode className="h-4 w-4" />
               <span>{isSubmitting ? 'Cadastrando...' : 'Cadastrar e Gerar Código QR'}</span>
@@ -286,20 +344,10 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 id="btn-view-last-qr"
                 type="button"
                 onClick={() => setShowModal(true)}
-                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 text-xs font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 py-2 px-3 rounded-lg transition-colors"
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 py-2 px-3.5 rounded-lg transition-colors cursor-pointer"
               >
-                <QrCode className="h-3.5 w-3.5" />
-                <span>Ver / Baixar QR</span>
-              </button>
-
-              <button
-                id="btn-goto-scanner"
-                type="button"
-                onClick={onNavigateToScanner}
-                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 py-2 px-3 rounded-lg transition-colors"
-              >
-                <span>Testar Leitor</span>
-                <ArrowRight className="h-3.5 w-3.5" />
+                <QrCode className="h-4 w-4 text-sky-600" />
+                <span>Visualizar / Baixar Credencial QR</span>
               </button>
             </div>
           </div>

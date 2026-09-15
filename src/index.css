@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+html {
+  transition: font-size 0.2s ease;
+}
+
+body {
+  transition: font-family 0.2s ease;
+}
+
+#reader-canvas-box {
+  width: 100% !important;
+  position: relative;
+  overflow: hidden;
+  background-color: #020617;
+}
+
+#reader-canvas-box video {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 420px;
+  object-fit: cover !important;
+  border-radius: 0.75rem;
+  margin: 0 auto;
+}
+
+#reader-canvas-box canvas {
+  border-radius: 0.75rem;
+}
