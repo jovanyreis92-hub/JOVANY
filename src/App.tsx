@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { ActiveTab, Participant, CompanySettings } from './types';
 import { getStoredParticipants, getCompanySettings } from './utils/storage';
 import { Header } from './components/Header';
@@ -184,6 +185,9 @@ export default function App() {
         currentSettings={companySettings}
         onSaved={(newSettings) => setCompanySettings(newSettings)}
       />
+
+      {/* Vercel Speed Insights */}
+      <SpeedInsights />
     </div>
   );
 }
