@@ -1,0 +1,319 @@
+import React, { useState } from 'react';
+import { User, Hash, Building2, UserPlus, CheckCircle, ArrowRight, QrCode, Sparkles, ImageIcon } from 'lucide-react';
+import { Participant, CompanySettings } from '../types';
+import { addParticipant } from '../utils/storage';
+import { QrBadgeModal } from './QrBadgeModal';
+
+interface RegistrationFormProps {
+  onParticipantAdded: (participant: Participant) => void;
+  onNavigateToScanner: () => void;
+  companySettings?: CompanySettings;
+  onOpenCompanySettings?: () => void;
+}
+
+export const RegistrationForm: React.FC<RegistrationFormProps> = ({
+  onParticipantAdded,
+  onNavigateToScanner,
+  companySettings,
+  onOpenCompanySettings,
+}) => {
+  const [fullName, setFullName] = useState('');
+  const [registrationNumber, setRegistrationNumber] = useState('');
+  const [company, setCompany] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Modal para exibir e baixar o QR code recém-gerado
+  const [createdParticipant, setCreatedParticipant] = useState<Participant | null>(null);
+  const [showModal, setShowModal] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+
+    if (!fullName.trim()) {
+      setErrorMessage('Por favor, informe o nome completo.');
+      return;
+    }
+    if (!registrationNumber.trim()) {
+      setErrorMessage('Por favor, informe o número de matrícula.');
+      return;
+    }
+    if (!company.trim()) {
+      setErrorMessage('Por favor, informe a empresa.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    const result = addParticipant({
+      fullName,
+      registrationNumber,
+      company,
+    });
+
+    setIsSubmitting(false);
+
+    if (!result.success || !result.participant) {
+      setErrorMessage(result.error || 'Erro ao registrar participante.');
+      return;
+    }
+
+    // Sucesso!
+    const newPart = result.participant;
+    onParticipantAdded(newPart);
+    setCreatedParticipant(newPart);
+    setShowModal(true);
+
+    // Limpa os campos do formulário para o próximo cadastro
+    setFullName('');
+    setRegistrationNumber('');
+    setCompany('');
+  };
+
+  const fillExample = () => {
+    const randomId = Math.floor(1000 + Math.random() * 9000);
+    const names = [
+      'Beatriz Vasconcelos',
+      'Rodrigo Fernandes',
+      'Aline Moreira',
+      'Gabriel Henrique Lima',
+      'Carla Mendonça',
+    ];
+    const companies = [
+      'InovaTech Soluções',
+      'Apex Engenharia',
+      'Alpha Logística',
+      'BioPharma Saúde',
+      'Vértice Consultoria',
+    ];
+    const randomName = names[Math.floor(Math.random() * names.length)];
+    const randomComp = companies[Math.floor(Math.random() * companies.length)];
+
+    setFullName(randomName);
+    setRegistrationNumber(`MAT-${randomId}`);
+    setCompany(randomComp);
+    setErrorMessage(null);
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-8">
+      {/* Cabeçalho do Card */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+        <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 sm:p-8">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 text-xs font-semibold tracking-wide border border-sky-400/20">
+                <UserPlus className="h-3.5 w-3.5" />
+                <span>Formulário de Inscrição</span>
+              </div>
+              {companySettings?.companyName && (
+                <span className="text-xs text-slate-300 font-medium hidden sm:inline">
+                  • {companySettings.companyName}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {onOpenCompanySettings && (
+                <button
+                  type="button"
+                  onClick={onOpenCompanySettings}
+                  className="text-xs text-slate-300 hover:text-white flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 transition-colors border border-slate-700 cursor-pointer"
+                  title="Trocar Logomarca da Empresa"
+                >
+                  <ImageIcon className="h-3.5 w-3.5 text-sky-400" />
+                  <span className="hidden sm:inline">Logomarca</span>
+                </button>
+              )}
+
+              <button
+                id="btn-fill-example"
+                type="button"
+                onClick={fillExample}
+                className="text-xs text-slate-300 hover:text-white flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 transition-colors border border-slate-700 cursor-pointer"
+                title="Preencher com dados de teste"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                <span>Exemplo rápido</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-4">
+            <div>
+              <h2 className="text-2xl font-bold text-white">
+                Cadastro de Participante
+              </h2>
+              <p className="text-slate-300 text-sm mt-1">
+                {companySettings?.eventName 
+                  ? `${companySettings.eventName} • Preencha os dados para gerar sua credencial com QR Code.`
+                  : 'Preencha os dados abaixo para gerar instantaneamente seu QR Code individual de credenciamento.'}
+              </p>
+            </div>
+
+            {companySettings?.logoUrl && (
+              <div className="shrink-0 bg-white/95 rounded-xl px-3 py-1.5 shadow-sm border border-white/20 self-start sm:self-center">
+                <img
+                  src={companySettings.logoUrl}
+                  alt={companySettings.companyName}
+                  className="h-9 max-w-[120px] object-contain"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Formulário */}
+        <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5">
+          {errorMessage && (
+            <div
+              id="registration-error-alert"
+              className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-start gap-2.5"
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-2 shrink-0"></div>
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {/* Nome Completo */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="input-fullName"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
+            >
+              Nome Completo <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <User className="h-4 w-4" />
+              </div>
+              <input
+                id="input-fullName"
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Ex: Amanda Cristina Ferreira"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm"
+                required
+              />
+            </div>
+          </div>
+
+          {/* Número de Matrícula */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="input-registrationNumber"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
+            >
+              Número de Matrícula <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <Hash className="h-4 w-4" />
+              </div>
+              <input
+                id="input-registrationNumber"
+                type="text"
+                value={registrationNumber}
+                onChange={(e) => setRegistrationNumber(e.target.value)}
+                placeholder="Ex: MAT-2024-089"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm font-mono"
+                required
+              />
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Identificador individual utilizado para validação na portaria.
+            </p>
+          </div>
+
+          {/* Empresa */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="input-company"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
+            >
+              Empresa <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <Building2 className="h-4 w-4" />
+              </div>
+              <input
+                id="input-company"
+                type="text"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder="Ex: Petróleo Brasileiro S/A ou TechCorp"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm"
+                required
+              />
+            </div>
+          </div>
+
+          {/* Botão de Envio */}
+          <div className="pt-2">
+            <button
+              id="btn-submit-registration"
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full flex items-center justify-center gap-2 py-3 px-6 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl font-semibold text-sm transition-all shadow-sm shadow-sky-600/20 hover:shadow-md disabled:opacity-50"
+            >
+              <QrCode className="h-4 w-4" />
+              <span>{isSubmitting ? 'Cadastrando...' : 'Cadastrar e Gerar Código QR'}</span>
+            </button>
+          </div>
+        </form>
+
+        {/* Notificação / Destaque de último cadastrado */}
+        {createdParticipant && !showModal && (
+          <div className="border-t border-slate-100 bg-slate-50/80 p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <CheckCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Último participante cadastrado:</p>
+                <p className="text-sm font-semibold text-slate-800">
+                  {createdParticipant.fullName} ({createdParticipant.registrationNumber})
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                id="btn-view-last-qr"
+                type="button"
+                onClick={() => setShowModal(true)}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 text-xs font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 py-2 px-3 rounded-lg transition-colors"
+              >
+                <QrCode className="h-3.5 w-3.5" />
+                <span>Ver / Baixar QR</span>
+              </button>
+
+              <button
+                id="btn-goto-scanner"
+                type="button"
+                onClick={onNavigateToScanner}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 py-2 px-3 rounded-lg transition-colors"
+              >
+                <span>Testar Leitor</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modal do QR Code com tecla para download individual */}
+      {showModal && createdParticipant && (
+        <QrBadgeModal
+          participant={createdParticipant}
+          onClose={() => setShowModal(false)}
+          isNewRegistration={true}
+        />
+      )}
+    </div>
+  );
+};
