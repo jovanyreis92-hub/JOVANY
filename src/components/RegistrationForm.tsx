@@ -62,15 +62,16 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   useEffect(() => {
     const handleEventsUpdated = (e: Event) => {
       const customEvent = e as CustomEvent<EventItem[]>;
-      if (customEvent.detail && Array.isArray(customEvent.detail)) {
-        setEvents(customEvent.detail);
-        if (!customEvent.detail.some((item) => item.id === selectedEventId)) {
-          const active = customEvent.detail.find((i) => i.active) || customEvent.detail[0];
-          if (active) setSelectedEventId(active.id);
-        }
-      } else {
-        const fresh = getStoredEvents();
-        setEvents(fresh);
+      const list = customEvent.detail && Array.isArray(customEvent.detail) ? customEvent.detail : getStoredEvents();
+      setEvents(list);
+
+      const params = new URLSearchParams(window.location.search);
+      const paramEventId = params.get('eventId');
+      if (paramEventId && list.some((i) => i.id === paramEventId)) {
+        setSelectedEventId(paramEventId);
+      } else if (!list.some((item) => item.id === selectedEventId)) {
+        const active = list.find((i) => i.active) || list[0];
+        if (active) setSelectedEventId(active.id);
       }
     };
 

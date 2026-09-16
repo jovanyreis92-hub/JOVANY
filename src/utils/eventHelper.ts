@@ -146,6 +146,7 @@ export function getEventRegistrationStatus(event?: EventItem | null): EventRegis
  * Monta o link único de inscrição vinculado diretamente a um evento específico
  */
 export function buildEventRegistrationUrl(baseUrl: string, eventId: string): string {
-  const cleanBase = baseUrl.replace(/\/?$/, '');
+  // Remove parâmetros existentes e barras no final para não duplicar ?tab=register
+  const cleanBase = (baseUrl || '').split('?')[0].replace(/\/?$/, '');
   return `${cleanBase}/?tab=register&eventId=${encodeURIComponent(eventId)}`;
 }

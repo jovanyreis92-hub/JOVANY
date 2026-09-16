@@ -1,5 +1,7 @@
 import { CompanySettings } from '../types';
 
+export const FALLBACK_PUBLIC_APP_URL = 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app';
+
 export interface PublicUrlInfo {
   url: string;
   isConverted: boolean;
@@ -25,28 +27,40 @@ export function resolvePublicRegistrationUrl(
     if (!formatted.startsWith('http://') && !formatted.startsWith('https://')) {
       formatted = `https://${formatted}`;
     }
+
+    // Se o usuário colou a URL da janela de desenvolvimento (ais-dev-), converte automaticamente para a pública (ais-pre-)
+    let converted = false;
+    if (formatted.includes('ais-dev-')) {
+      formatted = formatted.replace('ais-dev-', 'ais-pre-');
+      converted = true;
+    }
+
     try {
       const parsed = new URL(formatted);
       parsed.searchParams.set('tab', 'register');
+      const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+
       return {
         url: parsed.toString(),
-        isConverted: false,
-        isLocalhost: parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1',
-        type: 'custom',
-        note: 'URL pública personalizada definida pelo organizador.',
+        isConverted: converted,
+        isLocalhost,
+        type: isLocalhost ? 'localhost' : 'custom',
+        note: isLocalhost
+          ? 'Atenção: A URL configurada está como localhost. Para acesso em celulares externos (4G/5G), utilize a URL pública oficial.'
+          : 'URL pública oficial pronta para compartilhamento em qualquer celular e rede externa.',
       };
     } catch {
-      // continua para o fallback padrão caso a URL digitada seja inválida
+      // continua para a detecção padrão caso a URL digitada seja inválida
     }
   }
 
   if (typeof window === 'undefined') {
     return {
-      url: 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app/?tab=register',
+      url: `${FALLBACK_PUBLIC_APP_URL}/?tab=register`,
       isConverted: false,
       isLocalhost: false,
       type: 'public_preview',
-      note: 'URL padrão compartilhada.',
+      note: 'URL padrão compartilhada acessível em qualquer rede.',
     };
   }
 
@@ -61,18 +75,19 @@ export function resolvePublicRegistrationUrl(
       isConverted: true,
       isLocalhost: false,
       type: 'public_preview',
-      note: 'Ajustado automaticamente para a URL pública (ais-pre). Acessível livremente em celulares 4G/5G e qualquer rede externa.',
+      note: 'Ajustado automaticamente para a URL pública (ais-pre). Acessível livremente em celulares 4G/5G e qualquer rede externa sem necessidade de login Google.',
     };
   }
 
-  // 3. Detecção de ambiente local (localhost / 127.0.0.1)
+  // 3. Se estiver em localhost/127.0.0.1 no container/desenvolvimento
   if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+    // Retorna a URL pública oficial compartilhada na nuvem Cloud Run para que os celulares e QR Codes funcionem
     return {
-      url: `${origin}${pathname}?tab=register`,
-      isConverted: false,
-      isLocalhost: true,
-      type: 'localhost',
-      note: 'Você está no ambiente local. Celulares em outras redes não conseguem acessar "localhost" diretamente. Utilize a URL pública ou informe o IP da sua rede Wi-Fi.',
+      url: `${FALLBACK_PUBLIC_APP_URL}/?tab=register`,
+      isConverted: true,
+      isLocalhost: false,
+      type: 'public_preview',
+      note: 'Configurado com a URL pública oficial do evento para permitir acesso imediato via 4G/5G e redes externas.',
     };
   }
 
@@ -82,6 +97,6 @@ export function resolvePublicRegistrationUrl(
     isConverted: false,
     isLocalhost: false,
     type: 'production',
-    note: 'URL pública ativa pronta para compartilhamento.',
+    note: 'URL pública ativa pronta para compartilhamento em qualquer dispositivo.',
   };
 }
