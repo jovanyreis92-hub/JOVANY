@@ -1,4 +1,5 @@
 import { Participant, CompanySettings, EventItem } from '../types';
+import { getEventRegistrationStatus } from './eventHelper';
 
 const STORAGE_KEY = 'qr_event_participants_v1';
 const COMPANY_KEY = 'qr_event_company_settings_v1';
@@ -12,6 +13,9 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   adminPassword: '1234',
   fontFamily: 'inter',
   layoutScale: 'normal',
+  publicAppUrl: 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app',
+  creatorName: 'Jovany Reis',
+  creatorSignature: 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições',
 };
 
 export const INITIAL_EVENTS: EventItem[] = [
@@ -21,6 +25,8 @@ export const INITIAL_EVENTS: EventItem[] = [
     date: '2026-09-20',
     location: 'Auditório Principal - Sede',
     description: 'Treinamento de integração corporativa e apresentação de metas estratégicas.',
+    registrationStartDate: '2026-09-01T08:00',
+    registrationEndDate: '2026-09-20T18:00',
     active: true,
     createdAt: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
   },
@@ -30,6 +36,8 @@ export const INITIAL_EVENTS: EventItem[] = [
     date: '2026-10-05',
     location: 'Sala de Conferências A',
     description: 'Capacitação prática em ferramentas digitais e inteligência artificial aplicada.',
+    registrationStartDate: '2026-09-10T09:00',
+    registrationEndDate: '2026-10-04T23:59',
     active: false,
     createdAt: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
   },
@@ -274,6 +282,8 @@ export function addEvent(data: {
   date: string;
   location?: string;
   description?: string;
+  registrationStartDate?: string;
+  registrationEndDate?: string;
   active?: boolean;
 }): { success: boolean; event?: EventItem; error?: string } {
   const trimmedName = data.name.trim();
@@ -293,6 +303,8 @@ export function addEvent(data: {
     date: data.date || new Date().toISOString().slice(0, 10),
     location: data.location?.trim() || 'A definir',
     description: data.description?.trim() || '',
+    registrationStartDate: data.registrationStartDate?.trim() || undefined,
+    registrationEndDate: data.registrationEndDate?.trim() || undefined,
     active: !!data.active,
     createdAt: new Date().toISOString(),
   };
@@ -422,9 +434,22 @@ export function addParticipant(data: {
   }
 
   // Se não foi especificado evento, vincula ao evento ativo atual
+  const allEvents = getStoredEvents();
   const activeEvt = getActiveEvent();
   const targetEventId = data.eventId || activeEvt?.id || 'event_1';
-  const targetEventName = data.eventName || activeEvt?.name || 'Evento Corporativo';
+  const matchedEvent = allEvents.find((e) => e.id === targetEventId) || activeEvt;
+  const targetEventName = data.eventName || matchedEvent?.name || 'Evento Corporativo';
+
+  // Validação estrita do prazo de validade para cadastro do evento
+  if (matchedEvent) {
+    const validity = getEventRegistrationStatus(matchedEvent);
+    if (!validity.canRegister) {
+      return {
+        success: false,
+        error: validity.detail,
+      };
+    }
+  }
 
   // Validação prévia de duplicação local (no mesmo evento)
   const exists = current.some(

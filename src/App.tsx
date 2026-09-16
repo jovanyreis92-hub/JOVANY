@@ -12,7 +12,7 @@ import { RegistrationForm } from './components/RegistrationForm';
 import { AdminPanel } from './components/AdminPanel';
 import { CompanySettingsModal } from './components/CompanySettingsModal';
 import { MobileShareModal } from './components/MobileShareModal';
-import { UserPlus, ShieldCheck, CheckCircle2, Share2 } from 'lucide-react';
+import { UserPlus, ShieldCheck, CheckCircle2, Share2, Sparkles } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('register');
@@ -37,12 +37,16 @@ export default function App() {
   }, [companySettings.fontFamily, companySettings.layoutScale]);
 
   useEffect(() => {
-    // Detecta parâmetro de aba na URL (?tab=register / admin)
+    // Detecta parâmetro de aba na URL (?tab=register / admin / eventId)
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab');
+      const eventIdParam = params.get('eventId');
       if (tabParam === 'register' || tabParam === 'admin') {
         setActiveTab(tabParam as ActiveTab);
+      } else if (eventIdParam) {
+        // Link único de inscrição do evento
+        setActiveTab('register');
       } else if (tabParam === 'scanner') {
         // Leitor QR agora fica dentro do painel administrativo
         setActiveTab('admin');
@@ -167,20 +171,36 @@ export default function App() {
         </button>
       </div>
 
-      {/* Rodapé Desktop */}
-      <footer className="bg-white border-t border-slate-200/80 py-4 px-6 text-center text-xs text-slate-500 hidden sm:block">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            <span>
-              {companySettings.companyName 
-                ? `${companySettings.companyName} • Sistema de Presença e Credenciamento QR`
-                : 'Sistema Integrado de Presença e Credenciamento por QR Code'}
-            </span>
-          </p>
-          <p className="text-slate-400">
-            {attendedCount} presentes de {total} cadastrados &bull; Painel Administrativo Protegido
-          </p>
+      {/* Rodapé da Aplicação com Assinatura e Nome do Criador */}
+      <footer id="app-footer" className="bg-white border-t border-slate-200/90 py-5 px-4 sm:px-6 text-xs text-slate-500 pb-24 sm:pb-5 transition-all">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-center md:text-left">
+          {/* Informações da Empresa & Sistema */}
+          <div className="space-y-0.5">
+            <div className="flex items-center justify-center md:justify-start gap-1.5 font-semibold text-slate-700">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>
+                {companySettings.companyName 
+                  ? `${companySettings.companyName} • Sistema de Presença e Credenciamento QR`
+                  : 'Sistema Integrado de Presença e Credenciamento por QR Code'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              {attendedCount} presentes de {total} participantes cadastrados &bull; Painel Administrativo Protegido
+            </p>
+          </div>
+
+          {/* Assinatura e Nome do Criador */}
+          <div className="flex flex-col md:items-end items-center justify-center gap-1 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 w-full md:w-auto">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-200/90 text-slate-800 shadow-2xs">
+              <Sparkles className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              <span className="text-[11px] font-medium text-slate-600">
+                Criado por: <strong className="text-slate-900 font-bold">{companySettings.creatorName || 'Jovany Reis'}</strong>
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 font-sans tracking-tight">
+              {companySettings.creatorSignature || 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições'}
+            </p>
+          </div>
         </div>
       </footer>
 

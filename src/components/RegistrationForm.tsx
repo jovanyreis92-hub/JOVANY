@@ -1,7 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { User, Hash, Building2, UserPlus, CheckCircle, QrCode, Sparkles, Calendar, MapPin } from 'lucide-react';
+import { 
+  User, 
+  Hash, 
+  Building2, 
+  UserPlus, 
+  CheckCircle, 
+  QrCode, 
+  Sparkles, 
+  Calendar, 
+  MapPin, 
+  Share2, 
+  Clock, 
+  AlertTriangle, 
+  CheckCircle2, 
+  Timer 
+} from 'lucide-react';
 import { Participant, CompanySettings, EventItem } from '../types';
 import { addParticipant, getStoredEvents, getActiveEvent } from '../utils/storage';
+import { getEventRegistrationStatus, formatEventDateTime } from '../utils/eventHelper';
 import { QrBadgeModal } from './QrBadgeModal';
 
 interface RegistrationFormProps {
@@ -20,11 +36,27 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   const [company, setCompany] = useState('');
   const [events, setEvents] = useState<EventItem[]>(() => getStoredEvents());
   const [selectedEventId, setSelectedEventId] = useState<string>(() => {
+    // Verifica se há eventId na URL primeiro
+    const params = new URLSearchParams(window.location.search);
+    const paramEventId = params.get('eventId');
+    const stored = getStoredEvents();
+    if (paramEventId && stored.some((e) => e.id === paramEventId)) {
+      return paramEventId;
+    }
     const active = getActiveEvent();
     return active?.id || 'event_1';
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Escuta alteração da URL ou sincronização de eventos
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paramEventId = params.get('eventId');
+    if (paramEventId && events.some((e) => e.id === paramEventId)) {
+      setSelectedEventId(paramEventId);
+    }
+  }, [events]);
 
   // Sincroniza eventos quando atualizados
   useEffect(() => {
@@ -51,10 +83,17 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   const [showModal, setShowModal] = useState(false);
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
+  const validity = selectedEvent ? getEventRegistrationStatus(selectedEvent) : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+
+    // Validação estrita do prazo de validade
+    if (validity && !validity.canRegister) {
+      setErrorMessage(validity.detail);
+      return;
+    }
 
     if (!fullName.trim()) {
       setErrorMessage('Por favor, informe o nome completo.');
@@ -143,6 +182,18 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
+              {onOpenMobileShare && (
+                <button
+                  id="btn-share-registration-form"
+                  type="button"
+                  onClick={onOpenMobileShare}
+                  className="text-xs text-sky-300 hover:text-white flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-sky-950/70 hover:bg-sky-900 transition-colors border border-sky-700/60 cursor-pointer"
+                  title="Compartilhar link de inscrição para celulares e outras redes"
+                >
+                  <Share2 className="h-3.5 w-3.5 text-sky-400" />
+                  <span>Compartilhar Link / QR</span>
+                </button>
+              )}
               <button
                 id="btn-fill-example"
                 type="button"
@@ -231,6 +282,40 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 )}
               </div>
             )}
+
+            {/* Banner Informativo de Prazo de Validade da Inscrição */}
+            {validity && (
+              <div className={`mt-2 p-3 rounded-xl border flex items-start gap-3 transition-colors ${
+                validity.status === 'open'
+                  ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+                  : validity.status === 'ended'
+                  ? 'bg-rose-50 border-rose-200 text-rose-950'
+                  : validity.status === 'not_started'
+                  ? 'bg-amber-50 border-amber-200 text-amber-950'
+                  : 'bg-slate-50 border-slate-200 text-slate-800'
+              }`}>
+                <div className="mt-0.5 shrink-0">
+                  {validity.status === 'open' && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                  {validity.status === 'ended' && <AlertTriangle className="h-4 w-4 text-rose-600" />}
+                  {validity.status === 'not_started' && <Clock className="h-4 w-4 text-amber-600" />}
+                  {validity.status === 'no_restriction' && <Timer className="h-4 w-4 text-sky-600" />}
+                </div>
+
+                <div className="space-y-0.5 text-xs flex-1">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="font-bold">
+                      {validity.headline}
+                    </span>
+                    <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold border ${validity.badgeClass}`}>
+                      {validity.badgeLabel}
+                    </span>
+                  </div>
+                  <p className="text-slate-600 leading-normal">
+                    {validity.detail}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Nome Completo */}
@@ -315,11 +400,28 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             <button
               id="btn-submit-registration"
               type="submit"
-              disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3 px-6 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl font-semibold text-sm transition-all shadow-sm shadow-sky-600/20 hover:shadow-md disabled:opacity-50 cursor-pointer"
+              disabled={isSubmitting || (validity ? !validity.canRegister : false)}
+              className={`w-full flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-semibold text-sm transition-all shadow-sm ${
+                validity && !validity.canRegister
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed border border-slate-300'
+                  : 'bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white shadow-sky-600/20 hover:shadow-md cursor-pointer'
+              } disabled:opacity-60`}
             >
-              <QrCode className="h-4 w-4" />
-              <span>{isSubmitting ? 'Cadastrando...' : 'Cadastrar e Gerar Código QR'}</span>
+              {validity && !validity.canRegister ? (
+                <>
+                  <AlertTriangle className="h-4 w-4 text-slate-500" />
+                  <span>
+                    {validity.status === 'ended'
+                      ? 'Inscrições Encerradas (Prazo Expirado)'
+                      : 'Inscrições Não Iniciadas'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <QrCode className="h-4 w-4" />
+                  <span>{isSubmitting ? 'Cadastrando...' : 'Cadastrar e Gerar Código QR'}</span>
+                </>
+              )}
             </button>
           </div>
         </form>

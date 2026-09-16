@@ -4,6 +4,8 @@ export interface EventItem {
   date: string;
   location?: string;
   description?: string;
+  registrationStartDate?: string; // Data/hora de início das inscrições (YYYY-MM-DD ou YYYY-MM-DDTHH:mm)
+  registrationEndDate?: string;   // Data/hora final de validade das inscrições (prazo de validade)
   active: boolean;
   createdAt: string;
 }
@@ -40,6 +42,9 @@ export interface CompanySettings {
   adminPassword?: string;
   fontFamily?: LayoutFontFamily;
   layoutScale?: LayoutScaleSize;
+  publicAppUrl?: string;
+  creatorName?: string;       // Nome do criador
+  creatorSignature?: string;  // Assinatura/texto personalizado no rodapé
 }
 
 export type ActiveTab = 'register' | 'scanner' | 'admin';

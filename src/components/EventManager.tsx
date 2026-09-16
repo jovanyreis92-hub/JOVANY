@@ -15,7 +15,10 @@ import {
   X,
   Save,
   Check,
-  Building
+  Building,
+  QrCode,
+  AlertTriangle,
+  Timer
 } from 'lucide-react';
 import { EventItem, Participant, CompanySettings } from '../types';
 import { 
@@ -23,9 +26,12 @@ import {
   addEvent, 
   updateEvent, 
   deleteEvent, 
-  setActiveEvent 
+  setActiveEvent,
+  DEFAULT_COMPANY_SETTINGS
 } from '../utils/storage';
 import { exportToExcel, exportToPDF } from '../utils/export';
+import { getEventRegistrationStatus, formatEventDateTime } from '../utils/eventHelper';
+import { EventQrModal } from './EventQrModal';
 
 interface EventManagerProps {
   participants: Participant[];
@@ -43,12 +49,15 @@ export const EventManager: React.FC<EventManagerProps> = ({
   const [events, setEvents] = useState<EventItem[]>(() => getStoredEvents());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [qrModalEvent, setQrModalEvent] = useState<EventItem | null>(null);
 
   // Campos do formulário
   const [formName, setFormName] = useState('');
   const [formDate, setFormDate] = useState('');
   const [formLocation, setFormLocation] = useState('');
   const [formDescription, setFormDescription] = useState('');
+  const [formRegStartDate, setFormRegStartDate] = useState('');
+  const [formRegEndDate, setFormRegEndDate] = useState('');
   const [formActive, setFormActive] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -92,6 +101,8 @@ export const EventManager: React.FC<EventManagerProps> = ({
     setFormDate(new Date().toISOString().slice(0, 10));
     setFormLocation('');
     setFormDescription('');
+    setFormRegStartDate('');
+    setFormRegEndDate('');
     setFormActive(events.length === 0);
     setFormError(null);
     setIsModalOpen(true);
@@ -103,6 +114,8 @@ export const EventManager: React.FC<EventManagerProps> = ({
     setFormDate(evt.date || '');
     setFormLocation(evt.location || '');
     setFormDescription(evt.description || '');
+    setFormRegStartDate(evt.registrationStartDate || '');
+    setFormRegEndDate(evt.registrationEndDate || '');
     setFormActive(evt.active);
     setFormError(null);
     setIsModalOpen(true);
@@ -118,6 +131,15 @@ export const EventManager: React.FC<EventManagerProps> = ({
       return;
     }
 
+    if (formRegStartDate && formRegEndDate) {
+      const startD = new Date(formRegStartDate);
+      const endD = new Date(formRegEndDate);
+      if (!isNaN(startD.getTime()) && !isNaN(endD.getTime()) && endD < startD) {
+        setFormError('A data final de inscrição (prazo de validade) não pode ser anterior à data de início.');
+        return;
+      }
+    }
+
     if (editingEvent) {
       // Edição
       const updated: EventItem = {
@@ -126,6 +148,8 @@ export const EventManager: React.FC<EventManagerProps> = ({
         date: formDate || new Date().toISOString().slice(0, 10),
         location: formLocation.trim() || 'A definir',
         description: formDescription.trim(),
+        registrationStartDate: formRegStartDate ? formRegStartDate : undefined,
+        registrationEndDate: formRegEndDate ? formRegEndDate : undefined,
         active: formActive,
       };
 
@@ -145,6 +169,8 @@ export const EventManager: React.FC<EventManagerProps> = ({
         date: formDate,
         location: formLocation,
         description: formDescription,
+        registrationStartDate: formRegStartDate ? formRegStartDate : undefined,
+        registrationEndDate: formRegEndDate ? formRegEndDate : undefined,
         active: formActive,
       });
 
@@ -323,6 +349,39 @@ export const EventManager: React.FC<EventManagerProps> = ({
                   )}
                 </div>
 
+                {/* Período de Inscrição e Prazo de Validade */}
+                {(() => {
+                  const validity = getEventRegistrationStatus(evt);
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-slate-700 font-semibold">
+                          <Timer className="h-3.5 w-3.5 text-sky-600" />
+                          <span>Inscrições & Validade:</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${validity.badgeClass}`}>
+                          {validity.badgeLabel}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-0.5 border-t border-slate-200/60">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Início das Inscrições:</span>
+                          <span className="font-medium text-slate-700">
+                            {evt.registrationStartDate ? formatEventDateTime(evt.registrationStartDate) : 'Imediato'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Prazo de Validade (Fim):</span>
+                          <span className={`font-medium ${validity.status === 'ended' ? 'text-rose-600 font-bold' : 'text-slate-700'}`}>
+                            {evt.registrationEndDate ? formatEventDateTime(evt.registrationEndDate) : 'Sem restrição'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Estatísticas Rápidas do Evento */}
                 <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
                   <div>
@@ -346,13 +405,23 @@ export const EventManager: React.FC<EventManagerProps> = ({
                 </div>
               </div>
 
-              {/* Barra Inferior com Exportações do Evento */}
+              {/* Barra Inferior com Exportações do Evento e QR Único */}
               <div className="px-5 py-3.5 bg-slate-50/80 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs text-slate-500 font-medium">
                   Presença: <strong className="text-slate-800">{stats.rate}%</strong>
                 </span>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQrModalEvent(evt)}
+                    className="inline-flex items-center gap-1.5 py-1.5 px-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+                    title={`Visualizar e compartilhar o QR Code único com prazo de validade para ${evt.name}`}
+                  >
+                    <QrCode className="h-3.5 w-3.5" />
+                    <span>QR Único</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => handleExportEventExcel(evt)}
@@ -474,6 +543,45 @@ export const EventManager: React.FC<EventManagerProps> = ({
                 />
               </div>
 
+              {/* Período de Inscrição e Prazo de Validade para Cadastro */}
+              <div className="p-3.5 bg-sky-50/70 rounded-xl border border-sky-200/80 space-y-3">
+                <div className="flex items-center gap-2 text-sky-950 font-bold text-xs">
+                  <Timer className="h-4 w-4 text-sky-600 shrink-0" />
+                  <span>Prazo de Validade & Período de Inscrição</span>
+                </div>
+                <p className="text-[11px] text-sky-800 leading-relaxed">
+                  Defina as datas limites para os participantes se cadastrarem. Fora deste período, o formulário e o QR Code bloqueiam novos cadastros automaticamente.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Início das Inscrições
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={formRegStartDate}
+                      onChange={(e) => setFormRegStartDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-xs font-mono"
+                    />
+                    <span className="text-[10px] text-slate-500 block">Vazio = Início imediato</span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Prazo Final de Validade (Fim)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={formRegEndDate}
+                      onChange={(e) => setFormRegEndDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-xs font-mono"
+                    />
+                    <span className="text-[10px] text-slate-500 block">Limite final para inscrições</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Checkbox Ativo */}
               <div className="pt-1">
                 <label className="flex items-center gap-2.5 cursor-pointer">
@@ -547,6 +655,14 @@ export const EventManager: React.FC<EventManagerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal de QR Code Único do Evento com Prazo de Validade */}
+      <EventQrModal
+        isOpen={!!qrModalEvent}
+        onClose={() => setQrModalEvent(null)}
+        event={qrModalEvent}
+        companySettings={companySettings || DEFAULT_COMPANY_SETTINGS}
+      />
     </div>
   );
 };

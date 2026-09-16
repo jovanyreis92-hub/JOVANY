@@ -33,6 +33,7 @@ interface CompanySettings {
   adminPassword?: string;
   fontFamily?: string;
   layoutScale?: string;
+  publicAppUrl?: string;
 }
 
 const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
@@ -43,6 +44,7 @@ const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   adminPassword: "1234",
   fontFamily: "inter",
   layoutScale: "normal",
+  publicAppUrl: "https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app",
 };
 
 const INITIAL_EVENTS: EventItem[] = [
@@ -261,6 +263,21 @@ async function startServer() {
       serverTime: new Date().toISOString(),
       activeClients: sseClients.length,
       participantsCount: memoryParticipants.length,
+    });
+  });
+
+  // Informações de rede e URL pública para celulares e participantes externos
+  app.get("/api/public-info", (req, res) => {
+    const host = (req.headers["x-forwarded-host"] || req.headers.host || "") as string;
+    const proto = (req.headers["x-forwarded-proto"] || "https") as string;
+    let publicOrigin = host ? `${proto}://${host}` : "";
+    if (publicOrigin.includes("ais-dev-")) {
+      publicOrigin = publicOrigin.replace("ais-dev-", "ais-pre-");
+    }
+    res.json({
+      publicOrigin,
+      configuredUrl: memorySettings.publicAppUrl || null,
+      shareUrl: `${memorySettings.publicAppUrl || publicOrigin || ""}/?tab=register`,
     });
   });
 

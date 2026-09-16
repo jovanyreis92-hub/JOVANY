@@ -12,7 +12,9 @@ import {
   EyeOff,
   AlertCircle,
   Type,
-  Maximize2
+  Maximize2,
+  Globe,
+  PenTool
 } from 'lucide-react';
 import { CompanySettings, LayoutFontFamily, LayoutScaleSize } from '../types';
 import { saveCompanySettings } from '../utils/storage';
@@ -61,6 +63,10 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
 }) => {
   const [companyName, setCompanyName] = useState(currentSettings.companyName || 'Minha Empresa');
   const [eventName, setEventName] = useState(currentSettings.eventName || 'Evento Corporativo');
+  const [creatorName, setCreatorName] = useState(currentSettings.creatorName || 'Jovany Reis');
+  const [creatorSignature, setCreatorSignature] = useState(
+    currentSettings.creatorSignature || 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições'
+  );
   const [logoUrl, setLogoUrl] = useState<string | null>(currentSettings.logoUrl);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -77,10 +83,18 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
   const [selectedFont, setSelectedFont] = useState<LayoutFontFamily>(currentSettings.fontFamily || 'inter');
   const [selectedScale, setSelectedScale] = useState<LayoutScaleSize>(currentSettings.layoutScale || 'normal');
 
+  // URL pública para acesso em outras redes
+  const [publicAppUrl, setPublicAppUrl] = useState<string>(currentSettings.publicAppUrl || '');
+
   useEffect(() => {
     setSelectedFont(currentSettings.fontFamily || 'inter');
     setSelectedScale(currentSettings.layoutScale || 'normal');
-  }, [currentSettings.fontFamily, currentSettings.layoutScale, isOpen]);
+    setPublicAppUrl(currentSettings.publicAppUrl || '');
+    setCreatorName(currentSettings.creatorName || 'Jovany Reis');
+    setCreatorSignature(
+      currentSettings.creatorSignature || 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições'
+    );
+  }, [currentSettings.fontFamily, currentSettings.layoutScale, currentSettings.publicAppUrl, currentSettings.creatorName, currentSettings.creatorSignature, isOpen]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -214,6 +228,9 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
       adminPassword: finalPassword,
       fontFamily: selectedFont,
       layoutScale: selectedScale,
+      publicAppUrl: publicAppUrl.trim() || undefined,
+      creatorName: creatorName.trim() || undefined,
+      creatorSignature: creatorSignature.trim() || undefined,
     };
 
     saveCompanySettings(updated);
@@ -544,6 +561,96 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                     Credenciado
                   </span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Seção: Conectividade & Acesso em Outras Redes (URL Pública) */}
+          <div className="pt-3 border-t border-slate-100 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <Globe className="h-3.5 w-3.5 text-sky-600" />
+                <span>URL Pública de Inscrição (Acesso em Outras Redes / 4G / Wi-Fi)</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setPublicAppUrl('https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app')}
+                className="text-[11px] text-sky-600 hover:text-sky-800 font-medium underline cursor-pointer"
+              >
+                Preencher com URL Pública Oficial
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Para que participantes consigam se cadastrar usando 4G, 5G ou outras redes Wi-Fi sem erro 403 ou bloqueio de login do Google, use a URL pública (ais-pre) ou seu próprio domínio/servidor.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={publicAppUrl}
+                onChange={(e) => setPublicAppUrl(e.target.value)}
+                placeholder="https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+              />
+              {publicAppUrl && (
+                <button
+                  type="button"
+                  onClick={() => setPublicAppUrl('')}
+                  className="px-3 py-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-medium cursor-pointer"
+                  title="Limpar para usar detecção automática"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Seção: Assinatura do Criador & Rodapé */}
+          <div className="pt-3 border-t border-slate-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <PenTool className="h-3.5 w-3.5 text-sky-600" />
+                <span>Assinatura e Nome do Criador (Rodapé)</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreatorName('Jovany Reis');
+                  setCreatorSignature('Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições');
+                }}
+                className="text-[11px] text-sky-600 hover:text-sky-800 font-medium underline cursor-pointer"
+              >
+                Restaurar Padrão
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Nome do criador e assinatura exibidos no rodapé do sistema e em todas as telas da aplicação.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Nome do Criador
+                </label>
+                <input
+                  type="text"
+                  value={creatorName}
+                  onChange={(e) => setCreatorName(e.target.value)}
+                  placeholder="Ex: Jovany Reis"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Assinatura do Rodapé
+                </label>
+                <input
+                  type="text"
+                  value={creatorSignature}
+                  onChange={(e) => setCreatorSignature(e.target.value)}
+                  placeholder="Ex: Desenvolvido por Jovany Reis"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+                />
               </div>
             </div>
           </div>
