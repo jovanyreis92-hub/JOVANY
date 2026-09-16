@@ -91,13 +91,8 @@ export async function exportToExcel(
         right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
       };
 
-      if (colNumber === 1 || colNumber === 3 || colNumber === 7) {
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      } else if (colNumber === 6) {
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      } else {
-        cell.alignment = { vertical: 'middle', horizontal: 'left' };
-      }
+      // Todos os dados do participante 100% centralizados
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
 
       // Fundo padrão zebrado para colunas comuns
       if (colNumber !== 6) {
@@ -152,7 +147,7 @@ export async function exportToExcel(
     }
   });
 
-  // Linha de Rodapé/Totalizador
+  // Linha totalizadora de rodapé da tabela com a contagem de inscritos
   const totalRowNumber = 5 + participants.length;
   const totalRow = sheet.getRow(totalRowNumber);
   totalRow.values = [
@@ -164,11 +159,17 @@ export async function exportToExcel(
     `${presentes} Presentes (${taxaPresenca})`,
     `${ausentes} Ausentes`
   ];
-  totalRow.height = 22;
+  totalRow.height = 24;
   totalRow.eachCell((cell) => {
     cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
     cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = {
+      top: { style: 'medium', color: { argb: 'FF94A3B8' } },
+      bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+      left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+    };
   });
 
   // Largura das Colunas
@@ -189,6 +190,7 @@ export async function exportToExcel(
   sTitle.values = ['Métrica', 'Valor'];
   sTitle.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   sTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0284C7' } }; // sky-600
+  sTitle.alignment = { vertical: 'middle', horizontal: 'center' };
   sTitle.height = 24;
 
   const metrics: [string, string | number][] = [
@@ -206,6 +208,8 @@ export async function exportToExcel(
     r.values = m;
     r.height = 20;
     r.getCell(1).font = { bold: true, color: { argb: 'FF334155' } };
+    r.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    r.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
     if (m[0].includes('Presentes')) {
       r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
       r.getCell(2).font = { bold: true, color: { argb: 'FF065F46' } };
@@ -247,28 +251,28 @@ export function exportToPDF(
   const dataEmissao = new Date().toLocaleString('pt-BR');
   const displayEvent = eventNameFilter || company.eventName || 'Evento Geral';
 
-  // Cabeçalho institucional
+  // Cabeçalho institucional centralizado na página A4 (largura 210mm, centro = 105mm)
   doc.setFillColor(15, 23, 42); // slate-900
   doc.rect(0, 0, 210, 30, 'F');
 
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(14);
+  doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
   const title = company.companyName 
     ? `${company.companyName.toUpperCase()} - LISTA DE PRESENÇA` 
     : 'LISTA DE PRESENÇA E CREDENCIAMENTO';
-  doc.text(title, 14, 12);
+  doc.text(title, 105, 12, { align: 'center' });
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(56, 189, 248); // sky-400
-  doc.text(`Evento: ${displayEvent}`, 14, 18);
+  doc.text(`Evento: ${displayEvent}`, 105, 18, { align: 'center' });
 
   doc.setTextColor(203, 213, 225); // slate-300
   doc.setFontSize(8);
-  doc.text(`Relatório Oficial emitido em: ${dataEmissao}`, 14, 24);
+  doc.text(`Relatório Oficial emitido em: ${dataEmissao}`, 105, 24, { align: 'center' });
 
-  // Bloco de Métricas / Resumo
+  // Bloco de Métricas / Resumo centralizado
   doc.setFillColor(248, 250, 252);
   doc.roundedRect(14, 35, 182, 19, 2, 2, 'F');
   doc.setDrawColor(226, 232, 240);
@@ -276,26 +280,26 @@ export function exportToPDF(
 
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.text('TOTAL INSCRITOS', 20, 41);
-  doc.text('PRESENTES', 65, 41);
-  doc.text('AUSENTES', 120, 41);
-  doc.text('TAXA DE ADESÃO', 165, 41);
+  doc.text('TOTAL INSCRITOS', 36.75, 41, { align: 'center' });
+  doc.text('PRESENTES', 82.25, 41, { align: 'center' });
+  doc.text('AUSENTES', 127.75, 41, { align: 'center' });
+  doc.text('TAXA DE ADESÃO', 173.25, 41, { align: 'center' });
 
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42); // slate-900
-  doc.text(`${total}`, 20, 49);
+  doc.text(`${total}`, 36.75, 49, { align: 'center' });
 
   doc.setTextColor(22, 101, 52); // green-800
-  doc.text(`${presentes}`, 65, 49);
+  doc.text(`${presentes}`, 82.25, 49, { align: 'center' });
 
   doc.setTextColor(133, 77, 14); // yellow-800
-  doc.text(`${ausentes}`, 120, 49);
+  doc.text(`${ausentes}`, 127.75, 49, { align: 'center' });
 
   doc.setTextColor(2, 132, 199); // sky-600
-  doc.text(`${taxaPresenca}`, 165, 49);
+  doc.text(`${taxaPresenca}`, 173.25, 49, { align: 'center' });
 
-  // Tabela de participantes
+  // Tabela de participantes com todos os dados rigorosamente centralizados
   const tableRows = participants.map((p, index) => [
     String(index + 1),
     p.fullName,
@@ -317,21 +321,30 @@ export function exportToPDF(
       fontStyle: 'bold',
       fontSize: 8.5,
       halign: 'center',
+      valign: 'middle',
     },
     bodyStyles: {
       fontSize: 8,
       textColor: [30, 41, 59],
+      halign: 'center',
+      valign: 'middle',
     },
     columnStyles: {
-      0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 42 },
-      2: { cellWidth: 24, halign: 'center' },
-      3: { cellWidth: 32 },
-      4: { cellWidth: 34 },
-      5: { cellWidth: 26, halign: 'center' },
-      6: { cellWidth: 16, halign: 'center' },
+      0: { cellWidth: 10, halign: 'center', valign: 'middle' },
+      1: { cellWidth: 42, halign: 'center', valign: 'middle' },
+      2: { cellWidth: 22, halign: 'center', valign: 'middle' },
+      3: { cellWidth: 32, halign: 'center', valign: 'middle' },
+      4: { cellWidth: 32, halign: 'center', valign: 'middle' },
+      5: { cellWidth: 24, halign: 'center', valign: 'middle' },
+      6: { cellWidth: 20, halign: 'center', valign: 'middle' },
     },
     didParseCell: (data) => {
+      // Garante centralização vertical e horizontal em todas as células do corpo
+      if (data.section === 'body') {
+        data.cell.styles.halign = 'center';
+        data.cell.styles.valign = 'middle';
+      }
+
       // Situação (Presença na coluna índice 5): Presente cor verde, Ausente cor amarela
       if (data.section === 'body' && data.column.index === 5) {
         if (data.cell.raw === 'PRESENTE') {
@@ -346,9 +359,15 @@ export function exportToPDF(
           data.cell.styles.fontStyle = 'bold';
         }
       }
+
+      // Centralização vertical e horizontal no rodapé da tabela
+      if (data.section === 'foot') {
+        data.cell.styles.halign = 'center';
+        data.cell.styles.valign = 'middle';
+      }
     },
     foot: [
-      ['', `Total: ${total} participantes`, '', '', '', `${presentes} presentes`, `${ausentes} ausentes`]
+      ['', `Total: ${total} inscritos`, '', '', '', `${presentes} presentes`, `${ausentes} ausentes`]
     ],
     footStyles: {
       fillColor: [241, 245, 249],
@@ -356,6 +375,7 @@ export function exportToPDF(
       fontStyle: 'bold',
       fontSize: 8,
       halign: 'center',
+      valign: 'middle',
     },
     didDrawPage: (data) => {
       // Rodapé com paginação

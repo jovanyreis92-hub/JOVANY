@@ -1218,27 +1218,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </table>
         </div>
 
-        {/* Rodapé da tabela com totais visíveis */}
-        <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
-          <div className="flex items-center gap-2">
-            <span>
-              Exibindo {filteredParticipants.length} de {total} participantes cadastrados
-            </span>
-            {selectedIds.length > 0 && (
-              <span className="bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full font-medium">
+        {/* Rodapé da tabela */}
+        {selectedIds.length > 0 && (
+          <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex items-center justify-between text-xs text-slate-500 gap-2">
+            <div className="flex items-center gap-2">
+              <span className="bg-sky-100 text-sky-800 px-2.5 py-1 rounded-full font-medium">
                 {selectedIds.length} selecionado(s) para exclusão
               </span>
-            )}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1 text-emerald-700 font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span> {presentCount} presentes
-            </span>
-            <span className="flex items-center gap-1 text-amber-700 font-medium">
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span> {absentCount} ausentes
-            </span>
-          </div>
-        </div>
+        )}
       </div>
         </>
       )}

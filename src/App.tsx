@@ -185,7 +185,7 @@ export default function App() {
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              {attendedCount} presentes de {total} participantes cadastrados &bull; Painel Administrativo Protegido
+              Painel Administrativo Protegido
             </p>
           </div>
 
