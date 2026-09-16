@@ -1,5 +1,6 @@
 import { Participant, CompanySettings, EventItem } from '../types';
 import { getEventRegistrationStatus } from './eventHelper';
+import { autoCorrectAndAccent } from './textCorrector';
 
 const STORAGE_KEY = 'qr_event_participants_v1';
 const COMPANY_KEY = 'qr_event_company_settings_v1';
@@ -468,8 +469,8 @@ export async function addParticipant(data: {
   const current = getStoredParticipants();
 
   const trimmedMatricula = data.registrationNumber.replace(/\D/g, '').trim();
-  const trimmedName = data.fullName.trim().toUpperCase();
-  const trimmedCompany = data.company.trim().toUpperCase();
+  const trimmedName = autoCorrectAndAccent(data.fullName.trim());
+  const trimmedCompany = autoCorrectAndAccent(data.company.trim());
 
   if (!trimmedMatricula) {
     return {
@@ -590,9 +591,9 @@ export async function updateParticipant(
   }
 
   const existing = current[index];
-  const trimmedName = data.fullName.trim().toUpperCase();
+  const trimmedName = autoCorrectAndAccent(data.fullName.trim());
   const trimmedMatricula = data.registrationNumber.replace(/\D/g, '').trim();
-  const trimmedCompany = data.company.trim().toUpperCase();
+  const trimmedCompany = autoCorrectAndAccent(data.company.trim());
 
   if (!trimmedName) {
     return { success: false, error: 'O nome completo é obrigatório.' };

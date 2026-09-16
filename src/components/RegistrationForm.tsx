@@ -4,9 +4,8 @@ import {
   Hash, 
   Building2, 
   UserPlus, 
-  CheckCircle, 
   QrCode, 
-  Sparkles, 
+  Sparkles,
   Calendar, 
   MapPin, 
   Share2, 
@@ -19,6 +18,7 @@ import {
 import { Participant, CompanySettings, EventItem } from '../types';
 import { addParticipant, getStoredEvents, getActiveEvent } from '../utils/storage';
 import { getEventRegistrationStatus, formatEventDateTime } from '../utils/eventHelper';
+import { autoCorrectAndAccent } from '../utils/textCorrector';
 import { QrBadgeModal } from './QrBadgeModal';
 
 interface RegistrationFormProps {
@@ -97,7 +97,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
       return;
     }
 
-    const cleanFullName = fullName.trim().toUpperCase();
+    const cleanFullName = autoCorrectAndAccent(fullName.trim());
     if (!cleanFullName) {
       setErrorMessage('Por favor, informe o nome completo.');
       return;
@@ -107,7 +107,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
       setErrorMessage('Por favor, informe o número de matrícula (somente números).');
       return;
     }
-    const cleanCompany = company.trim().toUpperCase();
+    const cleanCompany = autoCorrectAndAccent(company.trim());
     if (!cleanCompany) {
       setErrorMessage('Por favor, informe a empresa.');
       return;
@@ -344,7 +344,12 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value.toUpperCase())}
-                placeholder="EX: AMANDA CRISTINA FERREIRA"
+                onBlur={() => setFullName(autoCorrectAndAccent(fullName))}
+                placeholder="EX: JOÃO DA SILVA OU AMANDA CRISTINA FERREIRA"
+                spellCheck={true}
+                autoCorrect="on"
+                autoCapitalize="words"
+                lang="pt-BR"
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm uppercase"
                 required
               />
@@ -397,7 +402,12 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 type="text"
                 value={company}
                 onChange={(e) => setCompany(e.target.value.toUpperCase())}
+                onBlur={() => setCompany(autoCorrectAndAccent(company))}
                 placeholder="EX: PETRÓLEO BRASILEIRO S/A OU TECHCORP"
+                spellCheck={true}
+                autoCorrect="on"
+                autoCapitalize="words"
+                lang="pt-BR"
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm uppercase"
                 required
               />
@@ -443,35 +453,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             </button>
           </div>
         </form>
-
-        {/* Notificação / Destaque de último cadastrado */}
-        {createdParticipant && !showModal && (
-          <div className="border-t border-slate-100 bg-slate-50/80 p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                <CheckCircle className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Último participante cadastrado:</p>
-                <p className="text-sm font-semibold text-slate-800">
-                  {createdParticipant.fullName} ({createdParticipant.registrationNumber})
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <button
-                id="btn-view-last-qr"
-                type="button"
-                onClick={() => setShowModal(true)}
-                className="w-full sm:w-auto flex items-center justify-center gap-1.5 text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 py-2 px-3.5 rounded-lg transition-colors cursor-pointer"
-              >
-                <QrCode className="h-4 w-4 text-sky-600" />
-                <span>Visualizar / Baixar Credencial QR</span>
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Modal do QR Code com tecla para download individual */}

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Participant, EventItem } from '../types';
 import { updateParticipant } from '../utils/storage';
+import { autoCorrectAndAccent } from '../utils/textCorrector';
 
 interface EditParticipantModalProps {
   isOpen: boolean;
@@ -70,9 +71,9 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
     e.preventDefault();
     setErrorMessage(null);
 
-    const cleanName = fullName.trim().toUpperCase();
+    const cleanName = autoCorrectAndAccent(fullName.trim());
     const cleanRegistration = registrationNumber.replace(/\D/g, '').trim();
-    const cleanCompany = company.trim().toUpperCase();
+    const cleanCompany = autoCorrectAndAccent(company.trim());
 
     if (!cleanName) {
       setErrorMessage('Por favor, informe o nome completo do participante.');
@@ -183,6 +184,11 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value.toUpperCase())}
+                onBlur={() => setFullName(autoCorrectAndAccent(fullName))}
+                spellCheck={true}
+                autoCorrect="on"
+                autoCapitalize="words"
+                lang="pt-BR"
                 required
                 disabled={isSaving}
                 placeholder="EX: CARLOS EDUARDO DE OLIVEIRA"
@@ -236,6 +242,11 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
                   type="text"
                   value={company}
                   onChange={(e) => setCompany(e.target.value.toUpperCase())}
+                  onBlur={() => setCompany(autoCorrectAndAccent(company))}
+                  spellCheck={true}
+                  autoCorrect="on"
+                  autoCapitalize="words"
+                  lang="pt-BR"
                   disabled={isSaving}
                   placeholder="EX: PREFEITURA MUNICIPAL"
                   className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all disabled:opacity-60 uppercase"
