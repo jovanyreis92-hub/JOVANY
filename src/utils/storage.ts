@@ -468,8 +468,8 @@ export async function addParticipant(data: {
   const current = getStoredParticipants();
 
   const trimmedMatricula = data.registrationNumber.replace(/\D/g, '').trim();
-  const trimmedName = data.fullName.trim();
-  const trimmedCompany = data.company.trim();
+  const trimmedName = data.fullName.trim().toUpperCase();
+  const trimmedCompany = data.company.trim().toUpperCase();
 
   if (!trimmedMatricula) {
     return {
@@ -590,9 +590,9 @@ export async function updateParticipant(
   }
 
   const existing = current[index];
-  const trimmedName = data.fullName.trim();
+  const trimmedName = data.fullName.trim().toUpperCase();
   const trimmedMatricula = data.registrationNumber.replace(/\D/g, '').trim();
-  const trimmedCompany = data.company.trim();
+  const trimmedCompany = data.company.trim().toUpperCase();
 
   if (!trimmedName) {
     return { success: false, error: 'O nome completo é obrigatório.' };

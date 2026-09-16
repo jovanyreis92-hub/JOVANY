@@ -43,9 +43,9 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
   // Inicializa o formulário com os dados do participante selecionado
   useEffect(() => {
     if (participant && isOpen) {
-      setFullName(participant.fullName || '');
+      setFullName((participant.fullName || '').toUpperCase());
       setRegistrationNumber(participant.registrationNumber || '');
-      setCompany(participant.company || '');
+      setCompany((participant.company || '').toUpperCase());
       setSelectedEventId(participant.eventId || (events[0]?.id ?? 'event_1'));
       setAttended(Boolean(participant.attended));
       setErrorMessage(null);
@@ -70,9 +70,9 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
     e.preventDefault();
     setErrorMessage(null);
 
-    const cleanName = fullName.trim();
+    const cleanName = fullName.trim().toUpperCase();
     const cleanRegistration = registrationNumber.replace(/\D/g, '').trim();
-    const cleanCompany = company.trim();
+    const cleanCompany = company.trim().toUpperCase();
 
     if (!cleanName) {
       setErrorMessage('Por favor, informe o nome completo do participante.');
@@ -182,11 +182,11 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
                 id="edit-participant-fullname"
                 type="text"
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                onChange={(e) => setFullName(e.target.value.toUpperCase())}
                 required
                 disabled={isSaving}
-                placeholder="Ex: Carlos Eduardo de Oliveira"
-                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all disabled:opacity-60"
+                placeholder="EX: CARLOS EDUARDO DE OLIVEIRA"
+                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all disabled:opacity-60 uppercase"
               />
             </div>
           </div>
@@ -235,10 +235,10 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
                   id="edit-participant-company"
                   type="text"
                   value={company}
-                  onChange={(e) => setCompany(e.target.value)}
+                  onChange={(e) => setCompany(e.target.value.toUpperCase())}
                   disabled={isSaving}
-                  placeholder="Ex: Prefeitura Municipal"
-                  className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all disabled:opacity-60"
+                  placeholder="EX: PREFEITURA MUNICIPAL"
+                  className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all disabled:opacity-60 uppercase"
                 />
               </div>
             </div>

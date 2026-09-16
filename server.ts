@@ -352,9 +352,9 @@ async function startServer() {
   app.post("/api/participants", (req, res) => {
     const { id, fullName, registrationNumber, company, eventId, eventName, createdAt } = req.body;
 
-    const trimmedName = (fullName || "").trim();
+    const trimmedName = (fullName || "").trim().toUpperCase();
     const trimmedMatricula = (registrationNumber || "").toString().replace(/\D/g, "").trim();
-    const trimmedCompany = (company || "").trim();
+    const trimmedCompany = (company || "").trim().toUpperCase();
 
     if (!trimmedName) {
       res.status(400).json({ success: false, error: "Nome completo é obrigatório." });
@@ -424,7 +424,7 @@ async function startServer() {
     const added: Participant[] = [];
     for (const item of incoming) {
       const matricula = (item.registrationNumber || "").toString().replace(/\D/g, "").trim();
-      const name = (item.fullName || "").trim();
+      const name = (item.fullName || "").trim().toUpperCase();
       if (!name || !matricula) continue;
 
       const eventId = item.eventId || "event_1";
@@ -437,7 +437,7 @@ async function startServer() {
           id: item.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
           fullName: name,
           registrationNumber: matricula,
-          company: item.company || "Não informada",
+          company: (item.company || "").trim().toUpperCase() || "Não informada",
           eventId,
           eventName: item.eventName || "Evento Corporativo",
           createdAt: item.createdAt || new Date().toISOString(),
@@ -598,10 +598,10 @@ async function startServer() {
     }
 
     const current = memoryParticipants[index];
-    const trimmedName = (fullName !== undefined ? fullName : current.fullName).trim();
+    const trimmedName = (fullName !== undefined ? fullName : current.fullName).trim().toUpperCase();
     const rawMatricula = registrationNumber !== undefined ? registrationNumber.toString() : current.registrationNumber;
     const trimmedMatricula = rawMatricula.replace(/\D/g, "").trim();
-    const trimmedCompany = (company !== undefined ? company : current.company).trim();
+    const trimmedCompany = (company !== undefined ? company : current.company).trim().toUpperCase();
 
     if (!trimmedName) {
       res.status(400).json({ success: false, error: "O nome completo do participante é obrigatório." });

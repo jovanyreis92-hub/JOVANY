@@ -97,7 +97,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
       return;
     }
 
-    if (!fullName.trim()) {
+    const cleanFullName = fullName.trim().toUpperCase();
+    if (!cleanFullName) {
       setErrorMessage('Por favor, informe o nome completo.');
       return;
     }
@@ -106,7 +107,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
       setErrorMessage('Por favor, informe o número de matrícula (somente números).');
       return;
     }
-    if (!company.trim()) {
+    const cleanCompany = company.trim().toUpperCase();
+    if (!cleanCompany) {
       setErrorMessage('Por favor, informe a empresa.');
       return;
     }
@@ -115,9 +117,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
 
     try {
       const result = await addParticipant({
-        fullName,
+        fullName: cleanFullName,
         registrationNumber: cleanRegistration,
-        company,
+        company: cleanCompany,
         eventId: selectedEvent?.id,
         eventName: selectedEvent?.name,
       });
@@ -341,9 +343,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 id="input-fullName"
                 type="text"
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Ex: Amanda Cristina Ferreira"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm"
+                onChange={(e) => setFullName(e.target.value.toUpperCase())}
+                placeholder="EX: AMANDA CRISTINA FERREIRA"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm uppercase"
                 required
               />
             </div>
@@ -394,9 +396,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 id="input-company"
                 type="text"
                 value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                placeholder="Ex: Petróleo Brasileiro S/A ou TechCorp"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm"
+                onChange={(e) => setCompany(e.target.value.toUpperCase())}
+                placeholder="EX: PETRÓLEO BRASILEIRO S/A OU TECHCORP"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm uppercase"
                 required
               />
             </div>
