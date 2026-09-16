@@ -27,7 +27,8 @@ import {
   Camera,
   Palette,
   Calendar,
-  Filter
+  Filter,
+  Pencil
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem } from '../types';
 import { 
@@ -38,13 +39,15 @@ import {
   verifyAdminCredentials,
   registerAdminCredentials,
   verifyAdminPassword,
-  getStoredEvents
+  getStoredEvents,
+  syncWithServer
 } from '../utils/storage';
 import { exportToExcel, exportToPDF } from '../utils/export';
 import { QrBadgeModal } from './QrBadgeModal';
 import { AdminCredentialsModal } from './AdminCredentialsModal';
 import { QrScanner } from './QrScanner';
 import { EventManager } from './EventManager';
+import { EditParticipantModal } from './EditParticipantModal';
 
 interface AdminPanelProps {
   participants: Participant[];
@@ -91,6 +94,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Modal de visualização / download de QR
   const [selectedParticipantForQr, setSelectedParticipantForQr] = useState<Participant | null>(null);
 
+  // Modal de alteração / edição de participante individual
+  const [participantToEdit, setParticipantToEdit] = useState<Participant | null>(null);
+
   // Confirmação de exclusão individual
   const [participantToDelete, setParticipantToDelete] = useState<Participant | null>(null);
 
@@ -121,6 +127,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     window.addEventListener('events-updated', handleEventsUpdated);
     return () => window.removeEventListener('events-updated', handleEventsUpdated);
   }, []);
+
+  // Escuta novos cadastros recebidos em tempo real de celulares em outras redes (4G/5G/Wi-Fi)
+  useEffect(() => {
+    const handleParticipantReceived = (e: Event) => {
+      const customEvent = e as CustomEvent<Participant>;
+      if (customEvent.detail) {
+        const p = customEvent.detail;
+        showToast(`Novo participante recebido: ${p.fullName} (${p.company})`, 'success');
+        onUpdateParticipants();
+      }
+    };
+
+    window.addEventListener('participant-received', handleParticipantReceived);
+    return () => window.removeEventListener('participant-received', handleParticipantReceived);
+  }, [onUpdateParticipants]);
+
+  // Escuta alterações de participantes sincronizadas pelo servidor ou outros dispositivos
+  useEffect(() => {
+    const handleParticipantUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<Participant>;
+      if (customEvent.detail) {
+        onUpdateParticipants();
+      }
+    };
+
+    window.addEventListener('participant-updated', handleParticipantUpdated);
+    return () => window.removeEventListener('participant-updated', handleParticipantUpdated);
+  }, [onUpdateParticipants]);
+
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      await syncWithServer();
+      onUpdateParticipants();
+      showToast('Sincronização com o servidor central concluída com sucesso.', 'success');
+    } catch {
+      showToast('Falha na sincronização com o servidor.', 'info');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const showToast = (text: string, type: 'success' | 'info' = 'success') => {
     setToastMessage({ text, type });
@@ -614,8 +663,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </p>
         </div>
 
-        {/* Botões de Ação Global (Exportar PDF, Excel, Credenciais, Desconectar, Logomarca) */}
+        {/* Botões de Ação Global (Sincronizar, Exportar PDF, Excel, Credenciais, Compartilhar, Logomarca) */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            id="btn-admin-sync-now"
+            type="button"
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            title="Atualizar lista com o servidor central imediatamente para buscar novos cadastros de outras redes"
+          >
+            <RefreshCw className={`h-4 w-4 text-sky-600 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+          </button>
+
           <button
             id="btn-admin-manage-credentials"
             type="button"
@@ -1115,12 +1176,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {/* Botões de Ação */}
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {/* Tecla de Edição Individual do Participante */}
+                          <button
+                            id={`btn-edit-${p.id}`}
+                            type="button"
+                            onClick={() => setParticipantToEdit(p)}
+                            className="p-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-900 border border-amber-200/70 transition-colors cursor-pointer"
+                            title={`Editar dados de ${p.fullName} (Nome, Matrícula, Empresa, Evento)`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+
                           {/* Botão Ver / Baixar QR Code */}
                           <button
                             id={`btn-view-qr-${p.id}`}
                             type="button"
                             onClick={() => setSelectedParticipantForQr(p)}
-                            className="p-1.5 rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 hover:text-sky-900 border border-sky-200/60 transition-colors"
+                            className="p-1.5 rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 hover:text-sky-900 border border-sky-200/60 transition-colors cursor-pointer"
                             title="Ver e Baixar Código QR / Crachá"
                           >
                             <QrCode className="h-4 w-4" />
@@ -1131,7 +1203,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             id={`btn-delete-${p.id}`}
                             type="button"
                             onClick={() => setParticipantToDelete(p)}
-                            className="p-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-800 border border-rose-200/60 transition-colors"
+                            className="p-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-800 border border-rose-200/60 transition-colors cursor-pointer"
                             title="Excluir participante cadastrado"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1312,6 +1384,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         onSuccess={() => {
           onUpdateParticipants();
           showToast('Credenciais de administrador salvas com sucesso!', 'success');
+        }}
+      />
+
+      {/* Modal Dedicado para Edição e Alteração Individual do Participante */}
+      <EditParticipantModal
+        isOpen={Boolean(participantToEdit)}
+        participant={participantToEdit}
+        events={eventsList}
+        onClose={() => setParticipantToEdit(null)}
+        onSuccess={(updated) => {
+          onUpdateParticipants();
+          showToast(`Participante "${updated.fullName}" alterado e sincronizado com sucesso!`, 'success');
         }}
       />
     </div>

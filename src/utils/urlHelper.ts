@@ -1,38 +1,32 @@
 import { CompanySettings } from '../types';
 
-export const FALLBACK_PUBLIC_APP_URL = 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app';
+export const CURRENT_DEV_APP_URL = 'https://ais-dev-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app';
+export const SHARED_CLOUD_APP_URL = 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app';
 
 export interface PublicUrlInfo {
   url: string;
   isConverted: boolean;
   isLocalhost: boolean;
-  type: 'public_preview' | 'custom' | 'localhost' | 'production';
+  type: 'live_session' | 'shared_cloud' | 'custom' | 'localhost' | 'production';
   note: string;
 }
 
 /**
- * Obtém a URL pública oficial para compartilhamento do formulário de inscrição.
- * Converte automaticamente URLs de desenvolvimento restrito (ais-dev-) para a
- * URL pública de produção compartilhada (ais-pre-), permitindo acesso irrestrito
- * em qualquer celular, rede 4G/5G ou Wi-Fi externo sem exigir autenticação no Google AI Studio.
+ * Obtém a URL oficial ativa para compartilhamento do formulário de inscrição.
+ * Usa a URL da sessão ativa (onde o servidor e o banco de dados estão rodando em tempo real)
+ * para garantir que cadastros feitos em celulares (4G, 5G ou Wi-Fi) cheguem instantaneamente
+ * ao painel administrativo.
  */
 export function resolvePublicRegistrationUrl(
   companySettings?: Partial<CompanySettings>,
   customOverride?: string
 ): PublicUrlInfo {
-  // 1. Se foi fornecida uma URL customizada salva nas configurações ou informada no modal
-  const explicitUrl = customOverride?.trim() || companySettings?.publicAppUrl?.trim();
+  // 1. Se foi fornecida uma URL customizada informada explicitamente pelo usuário
+  const explicitUrl = customOverride?.trim();
   if (explicitUrl) {
     let formatted = explicitUrl;
     if (!formatted.startsWith('http://') && !formatted.startsWith('https://')) {
       formatted = `https://${formatted}`;
-    }
-
-    // Se o usuário colou a URL da janela de desenvolvimento (ais-dev-), converte automaticamente para a pública (ais-pre-)
-    let converted = false;
-    if (formatted.includes('ais-dev-')) {
-      formatted = formatted.replace('ais-dev-', 'ais-pre-');
-      converted = true;
     }
 
     try {
@@ -42,61 +36,85 @@ export function resolvePublicRegistrationUrl(
 
       return {
         url: parsed.toString(),
-        isConverted: converted,
+        isConverted: false,
         isLocalhost,
         type: isLocalhost ? 'localhost' : 'custom',
         note: isLocalhost
-          ? 'Atenção: A URL configurada está como localhost. Para acesso em celulares externos (4G/5G), utilize a URL pública oficial.'
-          : 'URL pública oficial pronta para compartilhamento em qualquer celular e rede externa.',
+          ? 'Atenção: A URL configurada está como localhost. Para acesso em celulares externos (4G/5G), utilize a URL pública da nuvem.'
+          : 'URL personalizada configurada para receber cadastros de qualquer celular.',
       };
     } catch {
-      // continua para a detecção padrão caso a URL digitada seja inválida
+      // continua para detecção padrão
+    }
+  }
+
+  // 2. Se o usuário configurou uma URL própria nas configurações da empresa (diferente dos defaults)
+  if (
+    companySettings?.publicAppUrl &&
+    companySettings.publicAppUrl.trim() &&
+    companySettings.publicAppUrl !== CURRENT_DEV_APP_URL &&
+    companySettings.publicAppUrl !== SHARED_CLOUD_APP_URL
+  ) {
+    let formatted = companySettings.publicAppUrl.trim();
+    if (!formatted.startsWith('http://') && !formatted.startsWith('https://')) {
+      formatted = `https://${formatted}`;
+    }
+    try {
+      const parsed = new URL(formatted);
+      parsed.searchParams.set('tab', 'register');
+      return {
+        url: parsed.toString(),
+        isConverted: false,
+        isLocalhost: false,
+        type: 'custom',
+        note: 'URL pública personalizada ativa para receber cadastros de qualquer celular.',
+      };
+    } catch {
+      // continua
     }
   }
 
   if (typeof window === 'undefined') {
     return {
-      url: `${FALLBACK_PUBLIC_APP_URL}/?tab=register`,
+      url: `${CURRENT_DEV_APP_URL}/?tab=register`,
       isConverted: false,
       isLocalhost: false,
-      type: 'public_preview',
-      note: 'URL padrão compartilhada acessível em qualquer rede.',
+      type: 'live_session',
+      note: 'URL direta da sessão ativa conectada ao banco de dados em tempo real.',
     };
   }
 
   const origin = window.location.origin;
   const pathname = window.location.pathname;
 
-  // 2. Detecção automática do ambiente Google AI Studio Dev (ais-dev- -> ais-pre-)
-  if (origin.includes('ais-dev-')) {
-    const publicOrigin = origin.replace('ais-dev-', 'ais-pre-');
+  // 3. Se estiver rodando dentro do Google AI Studio (ais-dev- ou ais-pre-)
+  if (origin.includes('ais-dev-') || origin.includes('ais-pre-')) {
     return {
-      url: `${publicOrigin}${pathname}?tab=register`,
-      isConverted: true,
+      url: `${origin}${pathname}?tab=register`,
+      isConverted: false,
       isLocalhost: false,
-      type: 'public_preview',
-      note: 'Ajustado automaticamente para a URL pública (ais-pre). Acessível livremente em celulares 4G/5G e qualquer rede externa sem necessidade de login Google.',
+      type: origin.includes('ais-dev-') ? 'live_session' : 'shared_cloud',
+      note: 'URL da sessão ativa. Participantes em 4G, 5G ou Wi-Fi enviam os cadastros diretamente para este servidor em tempo real.',
     };
   }
 
-  // 3. Se estiver em localhost/127.0.0.1 no container/desenvolvimento
+  // 4. Se estiver em localhost/127.0.0.1 (ex: container isolado)
   if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-    // Retorna a URL pública oficial compartilhada na nuvem Cloud Run para que os celulares e QR Codes funcionem
     return {
-      url: `${FALLBACK_PUBLIC_APP_URL}/?tab=register`,
+      url: `${CURRENT_DEV_APP_URL}/?tab=register`,
       isConverted: true,
       isLocalhost: false,
-      type: 'public_preview',
-      note: 'Configurado com a URL pública oficial do evento para permitir acesso imediato via 4G/5G e redes externas.',
+      type: 'live_session',
+      note: 'Conectado à URL pública ativa na nuvem para permitir acesso via 4G/5G.',
     };
   }
 
-  // 4. URL de produção padrão (já é pública)
+  // 5. URL padrão de produção
   return {
     url: `${origin}${pathname}?tab=register`,
     isConverted: false,
     isLocalhost: false,
     type: 'production',
-    note: 'URL pública ativa pronta para compartilhamento em qualquer dispositivo.',
+    note: 'URL pública ativa pronta para receber cadastros de qualquer dispositivo.',
   };
 }

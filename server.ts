@@ -342,12 +342,15 @@ async function startServer() {
 
   // Listar todos os participantes
   app.get("/api/participants", (req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.json(memoryParticipants);
   });
 
   // Cadastrar novo participante (enviado de qualquer celular em qualquer rede)
   app.post("/api/participants", (req, res) => {
-    const { fullName, registrationNumber, company, eventId, eventName } = req.body;
+    const { id, fullName, registrationNumber, company, eventId, eventName, createdAt } = req.body;
 
     const trimmedName = (fullName || "").trim();
     const trimmedMatricula = (registrationNumber || "").toString().replace(/\D/g, "").trim();
@@ -382,14 +385,18 @@ async function startServer() {
       return;
     }
 
+    const finalId = (id && typeof id === "string" && id.startsWith("part_"))
+      ? id.trim()
+      : `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
     const newParticipant: Participant = {
-      id: `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: finalId,
       fullName: trimmedName,
       registrationNumber: trimmedMatricula,
       company: trimmedCompany || "Não informada",
       eventId: targetEventId,
       eventName: targetEventName,
-      createdAt: new Date().toISOString(),
+      createdAt: createdAt || new Date().toISOString(),
       attended: false,
       attendedAt: null,
     };
@@ -398,10 +405,57 @@ async function startServer() {
     memoryParticipants = [newParticipant, ...memoryParticipants];
     saveParticipants(memoryParticipants);
 
-    // Notifica instantaneamente todos os outros celulares e painéis
+    console.log(`[NOVO CADASTRO RECEBIDO] ${newParticipant.fullName} (Matrícula: ${newParticipant.registrationNumber}) - Evento: ${newParticipant.eventName}`);
+
+    // Notifica instantaneamente todos os outros celulares e painéis conectados via SSE
     broadcastEvent("participant_added", newParticipant);
 
     res.status(201).json({ success: true, participant: newParticipant });
+  });
+
+  // Sincronização em lote para participantes cadastrados em modo offline
+  app.post("/api/participants/batch", (req, res) => {
+    const incoming = req.body?.participants;
+    if (!Array.isArray(incoming) || incoming.length === 0) {
+      res.status(400).json({ success: false, error: "Lista de participantes inválida." });
+      return;
+    }
+
+    const added: Participant[] = [];
+    for (const item of incoming) {
+      const matricula = (item.registrationNumber || "").toString().replace(/\D/g, "").trim();
+      const name = (item.fullName || "").trim();
+      if (!name || !matricula) continue;
+
+      const eventId = item.eventId || "event_1";
+      const alreadyExists = memoryParticipants.some(
+        (p) => p.registrationNumber.toLowerCase() === matricula.toLowerCase() && (!p.eventId || p.eventId === eventId)
+      );
+
+      if (!alreadyExists) {
+        const participant: Participant = {
+          id: item.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          fullName: name,
+          registrationNumber: matricula,
+          company: item.company || "Não informada",
+          eventId,
+          eventName: item.eventName || "Evento Corporativo",
+          createdAt: item.createdAt || new Date().toISOString(),
+          attended: !!item.attended,
+          attendedAt: item.attendedAt || null,
+        };
+        memoryParticipants.unshift(participant);
+        added.push(participant);
+        broadcastEvent("participant_added", participant);
+      }
+    }
+
+    if (added.length > 0) {
+      saveParticipants(memoryParticipants);
+      console.log(`[SINCRONIZAÇÃO EM LOTE] ${added.length} participantes sincronizados com sucesso.`);
+    }
+
+    res.json({ success: true, addedCount: added.length, participants: memoryParticipants });
   });
 
   // Marcar presença por QR Code / Matrícula (leitor da portaria ou celular de recepção)
@@ -530,6 +584,80 @@ async function startServer() {
     broadcastEvent("attendance_updated", updated);
 
     res.json({ success: true, participant: updated, attended: newAttended });
+  });
+
+  // Atualizar / Alterar dados de um participante individual
+  app.put("/api/participants/:id", (req, res) => {
+    const { id } = req.params;
+    const { fullName, registrationNumber, company, eventId, eventName, attended } = req.body;
+
+    const index = memoryParticipants.findIndex((p) => p.id === id);
+    if (index === -1) {
+      res.status(404).json({ success: false, error: "Participante não encontrado." });
+      return;
+    }
+
+    const current = memoryParticipants[index];
+    const trimmedName = (fullName !== undefined ? fullName : current.fullName).trim();
+    const rawMatricula = registrationNumber !== undefined ? registrationNumber.toString() : current.registrationNumber;
+    const trimmedMatricula = rawMatricula.replace(/\D/g, "").trim();
+    const trimmedCompany = (company !== undefined ? company : current.company).trim();
+
+    if (!trimmedName) {
+      res.status(400).json({ success: false, error: "O nome completo do participante é obrigatório." });
+      return;
+    }
+
+    if (!trimmedMatricula) {
+      res.status(400).json({ success: false, error: "A matrícula é obrigatória e deve conter números." });
+      return;
+    }
+
+    const targetEventId = eventId !== undefined ? eventId : (current.eventId || "event_1");
+    // Verifica se outro participante já possui essa mesma matrícula no mesmo evento
+    const duplicate = memoryParticipants.some(
+      (p) => p.id !== id && p.registrationNumber.toLowerCase() === trimmedMatricula.toLowerCase() && (!p.eventId || p.eventId === targetEventId)
+    );
+    if (duplicate) {
+      res.status(409).json({ success: false, error: `A matrícula "${trimmedMatricula}" já pertence a outro participante neste evento.` });
+      return;
+    }
+
+    let targetEventName = eventName !== undefined ? eventName : current.eventName;
+    if (!targetEventName && targetEventId) {
+      const foundEvt = memoryEvents.find((e) => e.id === targetEventId);
+      if (foundEvt) targetEventName = foundEvt.name;
+    }
+
+    let newAttended = current.attended;
+    let newAttendedAt = current.attendedAt;
+    if (attended !== undefined) {
+      newAttended = Boolean(attended);
+      if (newAttended && !current.attended) {
+        newAttendedAt = new Date().toISOString();
+      } else if (!newAttended) {
+        newAttendedAt = null;
+      }
+    }
+
+    const updated: Participant = {
+      ...current,
+      fullName: trimmedName,
+      registrationNumber: trimmedMatricula,
+      company: trimmedCompany || "Não informada",
+      eventId: targetEventId,
+      eventName: targetEventName || current.eventName || "Evento Geral",
+      attended: newAttended,
+      attendedAt: newAttendedAt,
+    };
+
+    memoryParticipants[index] = updated;
+    saveParticipants(memoryParticipants);
+
+    console.log(`[PARTICIPANTE EDITADO] ${updated.fullName} (${updated.registrationNumber}) - Evento: ${updated.eventName}`);
+    broadcastEvent("participant_updated", updated);
+
+    res.json({ success: true, participant: updated });
   });
 
   // Excluir participante

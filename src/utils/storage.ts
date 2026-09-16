@@ -412,14 +412,59 @@ export function saveParticipants(participants: Participant[], broadcastLocal = t
   }
 }
 
-// Cadastrar novo participante (suporta chamada direta ou async de múltiplos celulares e redes)
-export function addParticipant(data: {
+// Chave para fila de participantes salvos durante oscilações de rede móvel
+const OFFLINE_QUEUE_KEY = 'qr_offline_participants_queue_v1';
+
+function getOfflineQueue(): Participant[] {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function queueOfflineParticipant(participant: Participant): void {
+  try {
+    const q = getOfflineQueue();
+    if (!q.some((p) => p.id === participant.id)) {
+      q.push(participant);
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q));
+    }
+  } catch (err) {
+    console.warn('Erro ao enfileirar participante offline:', err);
+  }
+}
+
+export async function flushOfflineQueue(): Promise<void> {
+  const q = getOfflineQueue();
+  if (!q || q.length === 0) return;
+
+  try {
+    const res = await fetch('/api/participants/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ participants: q }),
+    });
+
+    if (res.ok) {
+      localStorage.removeItem(OFFLINE_QUEUE_KEY);
+      console.log('[SYNC] Fila offline sincronizada com sucesso com o servidor central.');
+    }
+  } catch (err) {
+    console.warn('Fila offline aguardando conexão estável:', err);
+  }
+}
+
+// Cadastrar novo participante (suporta envio síncrono e assíncrono de qualquer celular em qualquer rede 4G/5G/Wi-Fi)
+export async function addParticipant(data: {
   fullName: string;
   registrationNumber: string;
   company: string;
   eventId?: string;
   eventName?: string;
-}): { success: boolean; participant?: Participant; error?: string } {
+}): Promise<{ success: boolean; participant?: Participant; error?: string }> {
   const current = getStoredParticipants();
 
   const trimmedMatricula = data.registrationNumber.replace(/\D/g, '').trim();
@@ -477,36 +522,164 @@ export function addParticipant(data: {
     attendedAt: null,
   };
 
-  // Salva no cache local imediatamente para feedback instantâneo
-  const updated = [newParticipant, ...current];
-  saveParticipants(updated);
-
-  // Envia ao servidor central para registrar e alertar outros celulares em tempo real
-  fetch('/api/participants', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fullName: trimmedName,
-      registrationNumber: trimmedMatricula,
-      company: trimmedCompany,
-      eventId: targetEventId,
-      eventName: targetEventName,
-    }),
-  })
-    .then(async (res) => {
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.warn('Servidor retornou erro ao cadastrar participante:', errorData);
-      } else {
-        setSyncStatus('connected');
-      }
-    })
-    .catch((err) => {
-      console.warn('Dispositivo sem rede ou instabilidade, salvo localmente para sync posterior:', err);
-      setSyncStatus('offline');
+  try {
+    // Envia ao servidor central para registrar e alertar outros celulares em tempo real
+    const res = await fetch('/api/participants', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        id: newParticipant.id,
+        fullName: trimmedName,
+        registrationNumber: trimmedMatricula,
+        company: trimmedCompany,
+        eventId: targetEventId,
+        eventName: targetEventName,
+        createdAt: newParticipant.createdAt,
+      }),
     });
 
-  return { success: true, participant: newParticipant };
+    if (res.ok) {
+      const serverPayload = await res.json();
+      const serverParticipant: Participant = serverPayload.participant || newParticipant;
+
+      // Salva no cache local confirmado
+      const latest = getStoredParticipants();
+      const updated = [serverParticipant, ...latest.filter((p) => p.id !== serverParticipant.id)];
+      saveParticipants(updated);
+      setSyncStatus('connected');
+
+      return { success: true, participant: serverParticipant };
+    } else {
+      const errorData = await res.json().catch(() => ({}));
+      const errorMsg = errorData.error || `Erro do servidor (${res.status}). Não foi possível cadastrar.`;
+      return { success: false, error: errorMsg };
+    }
+  } catch (err) {
+    console.warn('Rede externa temporariamente indisponível, salvando em cache e fila de sincronização:', err);
+    // Modo offline resiliente: salva no cache local para não perder os dados do participante
+    const latest = getStoredParticipants();
+    const updated = [newParticipant, ...latest.filter((p) => p.id !== newParticipant.id)];
+    saveParticipants(updated);
+    queueOfflineParticipant(newParticipant);
+    setSyncStatus('offline');
+
+    return { success: true, participant: newParticipant };
+  }
+}
+
+export async function updateParticipant(
+  id: string,
+  data: {
+    fullName: string;
+    registrationNumber: string;
+    company: string;
+    eventId?: string;
+    eventName?: string;
+    attended?: boolean;
+  }
+): Promise<{ success: boolean; participant?: Participant; error?: string }> {
+  const current = getStoredParticipants();
+  const index = current.findIndex((p) => p.id === id);
+
+  if (index === -1) {
+    return { success: false, error: 'Participante não encontrado no sistema.' };
+  }
+
+  const existing = current[index];
+  const trimmedName = data.fullName.trim();
+  const trimmedMatricula = data.registrationNumber.replace(/\D/g, '').trim();
+  const trimmedCompany = data.company.trim();
+
+  if (!trimmedName) {
+    return { success: false, error: 'O nome completo é obrigatório.' };
+  }
+  if (!trimmedMatricula) {
+    return { success: false, error: 'A matrícula deve conter números válidos.' };
+  }
+
+  const targetEventId = data.eventId || existing.eventId || 'event_1';
+  let targetEventName = data.eventName;
+  if (!targetEventName) {
+    const allEvents = getStoredEvents();
+    const foundEvt = allEvents.find((e) => e.id === targetEventId);
+    targetEventName = foundEvt?.name || existing.eventName || 'Evento Geral';
+  }
+
+  // Verifica duplicação de matrícula em outro participante no mesmo evento
+  const duplicate = current.some(
+    (p) =>
+      p.id !== id &&
+      p.registrationNumber.toLowerCase() === trimmedMatricula.toLowerCase() &&
+      (!p.eventId || p.eventId === targetEventId)
+  );
+
+  if (duplicate) {
+    return {
+      success: false,
+      error: `A matrícula "${trimmedMatricula}" já pertence a outro participante cadastrado neste evento.`,
+    };
+  }
+
+  const newAttended = data.attended !== undefined ? data.attended : existing.attended;
+  const newAttendedAt =
+    newAttended && !existing.attended
+      ? new Date().toISOString()
+      : !newAttended
+      ? null
+      : existing.attendedAt;
+
+  const updatedParticipant: Participant = {
+    ...existing,
+    fullName: trimmedName,
+    registrationNumber: trimmedMatricula,
+    company: trimmedCompany || 'Não informada',
+    eventId: targetEventId,
+    eventName: targetEventName,
+    attended: newAttended,
+    attendedAt: newAttendedAt,
+  };
+
+  // Salva no armazenamento local
+  const updatedList = current.map((p) => (p.id === id ? updatedParticipant : p));
+  saveParticipants(updatedList);
+
+  // Envia atualização para o servidor central
+  try {
+    const res = await fetch(`/api/participants/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        fullName: trimmedName,
+        registrationNumber: trimmedMatricula,
+        company: trimmedCompany,
+        eventId: targetEventId,
+        eventName: targetEventName,
+        attended: newAttended,
+      }),
+    });
+
+    if (res.ok) {
+      const serverData = await res.json();
+      const confirmed: Participant = serverData.participant || updatedParticipant;
+      setSyncStatus('connected');
+      return { success: true, participant: confirmed };
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      return { success: false, error: errData.error || 'Erro ao atualizar participante no servidor.' };
+    }
+  } catch (err) {
+    console.warn('Servidor indisponível para atualização imediata, salvo localmente:', err);
+    setSyncStatus('offline');
+    return { success: true, participant: updatedParticipant };
+  }
 }
 
 export function deleteParticipant(id: string): boolean {
@@ -738,10 +911,26 @@ export function clearAllParticipants(): void {
 
 export async function syncWithServer(): Promise<void> {
   try {
+    // Sincroniza qualquer participante salvo em modo offline previamente
+    await flushOfflineQueue();
+
+    const timestamp = Date.now();
     const [partRes, setRes, evtRes] = await Promise.all([
-      fetch('/api/participants'),
-      fetch('/api/company-settings'),
-      fetch('/api/events-list'),
+      fetch(`/api/participants?_t=${timestamp}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+        credentials: 'include',
+      }),
+      fetch(`/api/company-settings?_t=${timestamp}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+        credentials: 'include',
+      }),
+      fetch(`/api/events-list?_t=${timestamp}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+        credentials: 'include',
+      }),
     ]);
 
     if (partRes.ok) {
@@ -769,7 +958,7 @@ export async function syncWithServer(): Promise<void> {
 
     setSyncStatus('connected');
   } catch (err) {
-    console.warn('Não foi possível sincronizar com o servidor:', err);
+    console.warn('Não foi possível sincronizar com o servidor central:', err);
     setSyncStatus('offline');
   }
 }
@@ -821,11 +1010,18 @@ export function initMultiDeviceSync(): () => void {
             const current = getStoredParticipants();
             if (!current.some((p) => p.id === data.id)) {
               saveParticipants([data, ...current]);
+              // Dispara evento customizado para alertar componentes e painel de controle
+              window.dispatchEvent(new CustomEvent('participant-received', { detail: data }));
             }
           } else if (type === 'attendance_updated' && data) {
             const current = getStoredParticipants();
             const updated = current.map((p) => (p.id === data.id ? data : p));
             saveParticipants(updated);
+          } else if (type === 'participant_updated' && data) {
+            const current = getStoredParticipants();
+            const updated = current.map((p) => (p.id === data.id ? data : p));
+            saveParticipants(updated);
+            window.dispatchEvent(new CustomEvent('participant-updated', { detail: data }));
           } else if (type === 'participant_deleted' && data) {
             const current = getStoredParticipants();
             saveParticipants(current.filter((p) => p.id !== data));
@@ -870,30 +1066,40 @@ export function initMultiDeviceSync(): () => void {
 
   connectSSE();
 
-  // 3. Heartbeat Polling a cada 3.5 segundos para garantir atualização em celulares 4G/5G com proxies móveis
+  // 3. Heartbeat Polling a cada 3 segundos com anti-cache para garantir atualização em celulares 4G/5G
   const pollInterval = setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      fetch('/api/participants')
-        .then((res) => (res.ok ? res.json() : null))
-        .then((serverList) => {
-          if (Array.isArray(serverList)) {
-            const local = getStoredParticipants();
-            // Compara tamanho ou timestamps para sincronizar se houver novidade
-            if (
-              serverList.length !== local.length ||
-              JSON.stringify(serverList.map((p) => `${p.id}:${p.attended}`)) !==
-                JSON.stringify(local.map((p) => `${p.id}:${p.attended}`))
-            ) {
-              saveParticipants(serverList);
-            }
-            setSyncStatus('connected');
+    fetch(`/api/participants?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      credentials: 'include',
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((serverList) => {
+        if (Array.isArray(serverList)) {
+          const local = getStoredParticipants();
+          // Detecta se existem novos participantes recebidos no servidor
+          const newItems = serverList.filter((sp) => !local.some((lp) => lp.id === sp.id));
+          if (newItems.length > 0) {
+            newItems.forEach((p) => {
+              window.dispatchEvent(new CustomEvent('participant-received', { detail: p }));
+            });
           }
-        })
-        .catch(() => {
-          // não bloqueia
-        });
-    }
-  }, 3500);
+
+          // Compara tamanho ou timestamps para sincronizar se houver novidade
+          if (
+            serverList.length !== local.length ||
+            JSON.stringify(serverList.map((p) => `${p.id}:${p.attended}`)) !==
+              JSON.stringify(local.map((p) => `${p.id}:${p.attended}`))
+          ) {
+            saveParticipants(serverList);
+          }
+          setSyncStatus('connected');
+        }
+      })
+      .catch(() => {
+        // não bloqueia
+      });
+  }, 3000);
 
   // Sincroniza ao voltar a ter internet ou focar na janela
   const handleOnline = () => {

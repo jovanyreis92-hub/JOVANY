@@ -8,7 +8,6 @@ import {
   ExternalLink, 
   Share2,
   Link,
-  Globe,
   AlertTriangle,
   Settings2,
   RotateCcw,
@@ -187,30 +186,6 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
 
         {/* Corpo com QR Code e Link */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4 text-slate-700 text-sm">
-          {/* Alerta de status da URL pública */}
-          {urlInfo.isConverted ? (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start gap-2.5 text-xs text-emerald-900">
-              <Globe className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">Acesso Externo Liberado:</span> O link foi ajustado automaticamente para a <strong>URL pública oficial (ais-pre)</strong>. Qualquer participante em <strong>4G, 5G ou Wi-Fi externo</strong> consegue abrir o formulário sem restrições ou tela de login do Google.
-              </div>
-            </div>
-          ) : urlInfo.isLocalhost ? (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900">
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">Atenção (Localhost detectado):</span> Dispositivos móveis fora deste computador não conseguem abrir o endereço <code>localhost</code>. Clique no botão de engrenagem abaixo para informar o IP da sua rede Wi-Fi (ex: <code>http://192.168.1.10:3000</code>) ou a URL pública.
-              </div>
-            </div>
-          ) : (
-            <div className="p-3 bg-sky-50 border border-sky-200 rounded-2xl flex items-start gap-2.5 text-xs text-sky-900">
-              <Globe className="h-4 w-4 text-sky-600 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">URL Pública Ativa:</span> O formulário está disponível publicamente para qualquer dispositivo com conexão à internet.
-              </div>
-            </div>
-          )}
-
           {saveFeedback && (
             <div className="p-2.5 bg-emerald-100/80 border border-emerald-300 rounded-xl text-xs text-emerald-900 font-semibold text-center">
               {saveFeedback}

@@ -13,7 +13,8 @@ import {
   Clock, 
   AlertTriangle, 
   CheckCircle2, 
-  Timer 
+  Timer,
+  Loader2 
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem } from '../types';
 import { addParticipant, getStoredEvents, getActiveEvent } from '../utils/storage';
@@ -86,7 +87,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
   const validity = selectedEvent ? getEventRegistrationStatus(selectedEvent) : null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -112,31 +113,36 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
 
     setIsSubmitting(true);
 
-    const result = addParticipant({
-      fullName,
-      registrationNumber: cleanRegistration,
-      company,
-      eventId: selectedEvent?.id,
-      eventName: selectedEvent?.name,
-    });
+    try {
+      const result = await addParticipant({
+        fullName,
+        registrationNumber: cleanRegistration,
+        company,
+        eventId: selectedEvent?.id,
+        eventName: selectedEvent?.name,
+      });
 
-    setIsSubmitting(false);
+      if (!result.success || !result.participant) {
+        setErrorMessage(result.error || 'Erro ao registrar participante no sistema.');
+        setIsSubmitting(false);
+        return;
+      }
 
-    if (!result.success || !result.participant) {
-      setErrorMessage(result.error || 'Erro ao registrar participante.');
-      return;
+      // Sucesso confirmado pelo servidor!
+      const newPart = result.participant;
+      onParticipantAdded(newPart);
+      setCreatedParticipant(newPart);
+      setShowModal(true);
+
+      // Limpa os campos do formulário para o próximo cadastro
+      setFullName('');
+      setRegistrationNumber('');
+      setCompany('');
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Falha na conexão ao enviar o cadastro.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    // Sucesso!
-    const newPart = result.participant;
-    onParticipantAdded(newPart);
-    setCreatedParticipant(newPart);
-    setShowModal(true);
-
-    // Limpa os campos do formulário para o próximo cadastro
-    setFullName('');
-    setRegistrationNumber('');
-    setCompany('');
   };
 
   const fillExample = () => {
@@ -419,8 +425,17 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 </>
               ) : (
                 <>
-                  <QrCode className="h-4 w-4" />
-                  <span>{isSubmitting ? 'Cadastrando...' : 'Cadastrar e Gerar Código QR'}</span>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin text-white" />
+                      <span>Cadastrando e sincronizando em tempo real...</span>
+                    </>
+                  ) : (
+                    <>
+                      <QrCode className="h-4 w-4" />
+                      <span>Cadastrar e Gerar Código QR</span>
+                    </>
+                  )}
                 </>
               )}
             </button>
