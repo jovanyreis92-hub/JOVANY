@@ -13,24 +13,30 @@ import {
   AlertTriangle, 
   CheckCircle2, 
   Timer,
-  Loader2 
+  Loader2
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem } from '../types';
 import { addParticipant, getStoredEvents, getActiveEvent } from '../utils/storage';
 import { getEventRegistrationStatus, formatEventDateTime } from '../utils/eventHelper';
-import { autoCorrectAndAccent } from '../utils/textCorrector';
+import { autoCorrectAndAccent, isValidFullName } from '../utils/textCorrector';
 import { QrBadgeModal } from './QrBadgeModal';
 
 interface RegistrationFormProps {
   onParticipantAdded: (participant: Participant) => void;
   companySettings?: CompanySettings;
   onOpenMobileShare?: () => void;
+  isAdminAuthenticated?: boolean;
+  setIsAdminAuthenticated?: (auth: boolean) => void;
+  onNavigateToAdmin?: () => void;
 }
 
 export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   onParticipantAdded,
   companySettings,
   onOpenMobileShare,
+  isAdminAuthenticated,
+  setIsAdminAuthenticated,
+  onNavigateToAdmin,
 }) => {
   const [fullName, setFullName] = useState('');
   const [registrationNumber, setRegistrationNumber] = useState('');
@@ -98,10 +104,12 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
     }
 
     const cleanFullName = autoCorrectAndAccent(fullName.trim());
-    if (!cleanFullName) {
-      setErrorMessage('Por favor, informe o nome completo.');
+    const nameValidation = isValidFullName(cleanFullName);
+    if (!nameValidation.valid) {
+      setErrorMessage(nameValidation.error || 'Por favor, informe o nome completo (nome e sobrenome).');
       return;
     }
+
     const cleanRegistration = registrationNumber.replace(/\D/g, '').trim();
     if (!cleanRegistration) {
       setErrorMessage('Por favor, informe o número de matrícula (somente números).');
@@ -241,7 +249,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
           </div>
         </div>
 
-        {/* Formulário */}
+        {/* Formulário de Inscrição */}
         <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5">
           {errorMessage && (
             <div
@@ -329,12 +337,17 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
 
           {/* Nome Completo */}
           <div className="space-y-1.5">
-            <label
-              htmlFor="input-fullName"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
-            >
-              Nome Completo <span className="text-rose-500">*</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="input-fullName"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
+              >
+                Nome Completo (Nome e Sobrenome) <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[10.5px] text-slate-400 font-medium hidden sm:inline">
+                Obrigatório nome e sobrenome
+              </span>
+            </div>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                 <User className="h-4 w-4" />
@@ -345,7 +358,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value.toUpperCase())}
                 onBlur={() => setFullName(autoCorrectAndAccent(fullName))}
-                placeholder="EX: JOÃO DA SILVA OU AMANDA CRISTINA FERREIRA"
+                placeholder="EX: JOÃO DA SILVA (NOME E SOBRENOME OBRIGATÓRIOS)"
                 spellCheck={true}
                 autoCorrect="on"
                 autoCapitalize="words"
@@ -354,6 +367,11 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 required
               />
             </div>
+            {fullName.trim().length > 0 && fullName.trim().split(/\s+/).filter((w) => w.length > 0).length < 2 && (
+              <p className="text-[11px] text-amber-700 font-medium flex items-center gap-1 mt-1">
+                <span>Por favor, informe também o sobrenome para realizar a inscrição.</span>
+              </p>
+            )}
           </div>
 
           {/* Número de Matrícula (Somente Números) */}

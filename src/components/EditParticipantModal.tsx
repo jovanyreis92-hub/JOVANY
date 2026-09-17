@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { Participant, EventItem } from '../types';
 import { updateParticipant } from '../utils/storage';
-import { autoCorrectAndAccent } from '../utils/textCorrector';
+import { autoCorrectAndAccent, isValidFullName } from '../utils/textCorrector';
 
 interface EditParticipantModalProps {
   isOpen: boolean;
@@ -75,8 +75,10 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
     const cleanRegistration = registrationNumber.replace(/\D/g, '').trim();
     const cleanCompany = autoCorrectAndAccent(company.trim());
 
-    if (!cleanName) {
-      setErrorMessage('Por favor, informe o nome completo do participante.');
+    // Validação estrita de Nome Completo (exige nome e sobrenome)
+    const nameValidation = isValidFullName(cleanName);
+    if (!nameValidation.valid) {
+      setErrorMessage(nameValidation.error || 'Por favor, informe o nome completo (nome e sobrenome).');
       return;
     }
 
@@ -171,12 +173,15 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
 
           {/* Campo: Nome Completo */}
           <div>
-            <label 
-              htmlFor="edit-participant-fullname"
-              className="block text-xs font-semibold text-slate-700 mb-1"
-            >
-              Nome Completo <span className="text-rose-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label 
+                htmlFor="edit-participant-fullname"
+                className="block text-xs font-semibold text-slate-700"
+              >
+                Nome Completo (Nome e Sobrenome) <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[10px] text-slate-400">Obrigatório nome e sobrenome</span>
+            </div>
             <div className="relative">
               <User className="h-4 w-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
@@ -191,10 +196,15 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
                 lang="pt-BR"
                 required
                 disabled={isSaving}
-                placeholder="EX: CARLOS EDUARDO DE OLIVEIRA"
+                placeholder="EX: CARLOS EDUARDO DE OLIVEIRA (NOME E SOBRENOME)"
                 className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all disabled:opacity-60 uppercase"
               />
             </div>
+            {fullName.trim().length > 0 && fullName.trim().split(/\s+/).filter((w) => w.length > 0).length < 2 && (
+              <p className="text-[11px] text-amber-700 font-medium flex items-center gap-1 mt-1">
+                <span>Informe o nome completo (nome e sobrenome).</span>
+              </p>
+            )}
           </div>
 
           {/* Grid: Matrícula e Empresa */}

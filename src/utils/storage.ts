@@ -1,6 +1,6 @@
 import { Participant, CompanySettings, EventItem } from '../types';
 import { getEventRegistrationStatus } from './eventHelper';
-import { autoCorrectAndAccent } from './textCorrector';
+import { autoCorrectAndAccent, isValidFullName, normalizeNameForComparison } from './textCorrector';
 
 const STORAGE_KEY = 'qr_event_participants_v1';
 const COMPANY_KEY = 'qr_event_company_settings_v1';
@@ -173,6 +173,21 @@ export function verifyAdminCredentials(username: string, password: string): bool
 
   const userMatches = !inputUser || inputUser === validUser || inputUser === 'admin';
   return userMatches && inputPass === validPassword;
+}
+
+export function isAdminLoggedIn(): boolean {
+  if (typeof window === 'undefined') return false;
+  return sessionStorage.getItem('qr_admin_authenticated') === 'true';
+}
+
+export function setAdminLoggedIn(loggedIn: boolean): void {
+  if (typeof window === 'undefined') return;
+  if (loggedIn) {
+    sessionStorage.setItem('qr_admin_authenticated', 'true');
+  } else {
+    sessionStorage.removeItem('qr_admin_authenticated');
+  }
+  window.dispatchEvent(new CustomEvent('admin-auth-changed', { detail: loggedIn }));
 }
 
 export function registerAdminCredentials(username: string, password: string): { success: boolean; error?: string } {
@@ -459,18 +474,30 @@ export async function flushOfflineQueue(): Promise<void> {
 }
 
 // Cadastrar novo participante (suporta envio síncrono e assíncrono de qualquer celular em qualquer rede 4G/5G/Wi-Fi)
-export async function addParticipant(data: {
-  fullName: string;
-  registrationNumber: string;
-  company: string;
-  eventId?: string;
-  eventName?: string;
-}): Promise<{ success: boolean; participant?: Participant; error?: string }> {
+export async function addParticipant(
+  data: {
+    fullName: string;
+    registrationNumber: string;
+    company: string;
+    eventId?: string;
+    eventName?: string;
+  },
+  isAdmin?: boolean
+): Promise<{ success: boolean; participant?: Participant; error?: string }> {
   const current = getStoredParticipants();
 
   const trimmedMatricula = data.registrationNumber.replace(/\D/g, '').trim();
   const trimmedName = autoCorrectAndAccent(data.fullName.trim());
   const trimmedCompany = autoCorrectAndAccent(data.company.trim());
+
+  // Validação estrita de Nome Completo (exige nome e sobrenome)
+  const nameValidation = isValidFullName(trimmedName);
+  if (!nameValidation.valid) {
+    return {
+      success: false,
+      error: nameValidation.error,
+    };
+  }
 
   if (!trimmedMatricula) {
     return {
@@ -497,17 +524,38 @@ export async function addParticipant(data: {
     }
   }
 
-  // Validação prévia de duplicação local (no mesmo evento)
-  const exists = current.some(
+  // Validação prévia de duplicação local (no mesmo evento): proibir matrícula duplicada ou nome duplicado
+  const normalizedName = normalizeNameForComparison(trimmedName);
+  const existingSameMatricula = current.find(
     (p) => 
       p.registrationNumber.toLowerCase() === trimmedMatricula.toLowerCase() &&
       (!p.eventId || p.eventId === targetEventId)
   );
 
-  if (exists) {
+  const existingSameName = current.find(
+    (p) =>
+      normalizeNameForComparison(p.fullName) === normalizedName &&
+      (!p.eventId || p.eventId === targetEventId)
+  );
+
+  if (existingSameMatricula && existingSameName) {
     return {
       success: false,
-      error: `Já existe um participante cadastrado com o número de matrícula "${trimmedMatricula}" neste evento.`,
+      error: `Já existe um participante cadastrado com este nome ("${trimmedName}") e esta matrícula ("${trimmedMatricula}") neste evento.`,
+    };
+  }
+
+  if (existingSameMatricula) {
+    return {
+      success: false,
+      error: `Já existe um participante cadastrado com o número de matrícula "${trimmedMatricula}" neste evento (${existingSameMatricula.fullName}).`,
+    };
+  }
+
+  if (existingSameName) {
+    return {
+      success: false,
+      error: `Já existe um participante cadastrado com o nome "${trimmedName}" neste evento (Matrícula: ${existingSameName.registrationNumber}). Não são permitidos nomes duplicados.`,
     };
   }
 
@@ -530,6 +578,7 @@ export async function addParticipant(data: {
       headers: { 
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache',
+        'X-Admin-Auth': 'true',
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -540,6 +589,7 @@ export async function addParticipant(data: {
         eventId: targetEventId,
         eventName: targetEventName,
         createdAt: newParticipant.createdAt,
+        adminAuth: true,
       }),
     });
 
@@ -595,9 +645,12 @@ export async function updateParticipant(
   const trimmedMatricula = data.registrationNumber.replace(/\D/g, '').trim();
   const trimmedCompany = autoCorrectAndAccent(data.company.trim());
 
-  if (!trimmedName) {
-    return { success: false, error: 'O nome completo é obrigatório.' };
+  // Validação estrita de Nome Completo (exige nome e sobrenome)
+  const nameValidation = isValidFullName(trimmedName);
+  if (!nameValidation.valid) {
+    return { success: false, error: nameValidation.error };
   }
+
   if (!trimmedMatricula) {
     return { success: false, error: 'A matrícula deve conter números válidos.' };
   }
@@ -610,18 +663,33 @@ export async function updateParticipant(
     targetEventName = foundEvt?.name || existing.eventName || 'Evento Geral';
   }
 
-  // Verifica duplicação de matrícula em outro participante no mesmo evento
-  const duplicate = current.some(
+  // Verifica duplicação de matrícula ou nome em outro participante no mesmo evento
+  const normalizedName = normalizeNameForComparison(trimmedName);
+  const duplicateMatricula = current.find(
     (p) =>
       p.id !== id &&
       p.registrationNumber.toLowerCase() === trimmedMatricula.toLowerCase() &&
       (!p.eventId || p.eventId === targetEventId)
   );
 
-  if (duplicate) {
+  const duplicateName = current.find(
+    (p) =>
+      p.id !== id &&
+      normalizeNameForComparison(p.fullName) === normalizedName &&
+      (!p.eventId || p.eventId === targetEventId)
+  );
+
+  if (duplicateMatricula) {
     return {
       success: false,
-      error: `A matrícula "${trimmedMatricula}" já pertence a outro participante cadastrado neste evento.`,
+      error: `A matrícula "${trimmedMatricula}" já pertence a outro participante cadastrado neste evento (${duplicateMatricula.fullName}).`,
+    };
+  }
+
+  if (duplicateName) {
+    return {
+      success: false,
+      error: `Já existe outro participante cadastrado com o nome "${trimmedName}" neste evento (Matrícula: ${duplicateName.registrationNumber}). Não são permitidos nomes duplicados.`,
     };
   }
 

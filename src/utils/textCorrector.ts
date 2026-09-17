@@ -382,3 +382,52 @@ export function hasCorrectionSuggestion(text: string): boolean {
   const corrected = autoCorrectAndAccent(text);
   return corrected !== text.toUpperCase();
 }
+
+/**
+ * Normaliza o nome para verificação de duplicidade (ignora acentos, caixa alta/baixa e múltiplos espaços)
+ */
+export function normalizeNameForComparison(name: string): string {
+  if (!name) return '';
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Validação rigorosa de Nome Completo:
+ * Exige obrigatoriamente nome e pelo menos um sobrenome (mínimo de 2 partes com caracteres válidos).
+ */
+export function isValidFullName(name: string): { valid: boolean; error?: string } {
+  if (!name || typeof name !== 'string') {
+    return { valid: false, error: 'O nome completo é obrigatório.' };
+  }
+
+  const trimmed = name.trim();
+  if (trimmed.length < 3) {
+    return { valid: false, error: 'O nome completo deve conter no mínimo 3 caracteres.' };
+  }
+
+  // Divide pelas palavras
+  const words = trimmed.split(/\s+/).filter((w) => w.length > 0);
+
+  if (words.length < 2) {
+    return {
+      valid: false,
+      error: 'Por favor, informe o nome completo (nome e sobrenome). Não é permitido realizar a inscrição com apenas o primeiro nome.',
+    };
+  }
+
+  // Preposições permitidas de 1 letra como 'e'/'E', as demais partes devem ter pelo menos 2 letras
+  const validWords = words.filter((w) => w.length >= 2 || ['e', 'E'].includes(w));
+  if (validWords.length < 2) {
+    return {
+      valid: false,
+      error: 'Por favor, informe um sobrenome válido com pelo menos duas letras.',
+    };
+  }
+
+  return { valid: true };
+}

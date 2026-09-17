@@ -11,6 +11,9 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      outDir: 'dist',
+    },
     server: {
       // Permite acesso de qualquer host externo (celulares em outras redes, 4G/5G, Cloud Run ais-pre)
       allowedHosts: true as const,

@@ -5,7 +5,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { ActiveTab, Participant, CompanySettings } from './types';
-import { getStoredParticipants, getCompanySettings, initMultiDeviceSync } from './utils/storage';
+import { 
+  getStoredParticipants, 
+  getCompanySettings, 
+  initMultiDeviceSync, 
+  isAdminLoggedIn, 
+  setAdminLoggedIn 
+} from './utils/storage';
 import { applyLayoutPreferences } from './utils/theme';
 import { Header } from './components/Header';
 import { RegistrationForm } from './components/RegistrationForm';
@@ -17,10 +23,15 @@ import { UserPlus, ShieldCheck, CheckCircle2, Share2, Sparkles } from 'lucide-re
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('register');
   const [participants, setParticipants] = useState<Participant[]>([]);
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => isAdminLoggedIn());
   const [companySettings, setCompanySettings] = useState<CompanySettings>(getCompanySettings());
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState<boolean>(false);
   const [isMobileShareOpen, setIsMobileShareOpen] = useState<boolean>(false);
+
+  const handleSetAdminAuth = (auth: boolean) => {
+    setIsAdminAuthenticated(auth);
+    setAdminLoggedIn(auth);
+  };
 
   // Carrega e sincroniza os participantes
   const reloadParticipants = () => {
@@ -67,15 +78,24 @@ export default function App() {
       reloadCompanySettings();
     };
 
+    const handleAdminAuthUpdate = (e: Event) => {
+      const custom = e as CustomEvent<boolean>;
+      if (typeof custom.detail === 'boolean') {
+        setIsAdminAuthenticated(custom.detail);
+      }
+    };
+
     window.addEventListener('participants-updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
     window.addEventListener('company-settings-updated', handleCompanyUpdate);
+    window.addEventListener('admin-auth-changed', handleAdminAuthUpdate);
 
     return () => {
       stopSync();
       window.removeEventListener('participants-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
       window.removeEventListener('company-settings-updated', handleCompanyUpdate);
+      window.removeEventListener('admin-auth-changed', handleAdminAuthUpdate);
     };
   }, []);
 
@@ -83,9 +103,7 @@ export default function App() {
   const attendedCount = participants.filter((p) => p.attended).length;
 
   const handleHeaderLogout = () => {
-    if (isAdminAuthenticated) {
-      setIsAdminAuthenticated(false);
-    }
+    handleSetAdminAuth(false);
     setActiveTab('register');
   };
 
@@ -111,6 +129,9 @@ export default function App() {
             }}
             companySettings={companySettings}
             onOpenMobileShare={() => setIsMobileShareOpen(true)}
+            isAdminAuthenticated={isAdminAuthenticated}
+            setIsAdminAuthenticated={handleSetAdminAuth}
+            onNavigateToAdmin={() => setActiveTab('admin')}
           />
         </div>
 
@@ -118,7 +139,7 @@ export default function App() {
           <AdminPanel
             participants={participants}
             isAuthenticated={isAdminAuthenticated}
-            setIsAuthenticated={setIsAdminAuthenticated}
+            setIsAuthenticated={handleSetAdminAuth}
             onNavigateToRegister={() => setActiveTab('register')}
             onUpdateParticipants={reloadParticipants}
             companySettings={companySettings}

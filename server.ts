@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { autoCorrectAndAccent } from "./src/utils/textCorrector";
+import { autoCorrectAndAccent, isValidFullName, normalizeNameForComparison } from "./src/utils/textCorrector";
 
 interface EventItem {
   id: string;
@@ -237,7 +237,7 @@ function broadcastEvent(type: string, payload: unknown) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.NODE_ENV === "production" && process.env.PORT ? Number(process.env.PORT) : 3000;
 
   // Middlewares essenciais
   app.use(express.json({ limit: "15mb" }));
@@ -247,7 +247,7 @@ async function startServer() {
   app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Admin-Auth");
     if (req.method === "OPTIONS") {
       res.sendStatus(200);
       return;
@@ -349,7 +349,7 @@ async function startServer() {
     res.json(memoryParticipants);
   });
 
-  // Cadastrar novo participante (enviado de qualquer celular em qualquer rede)
+  // Cadastrar novo participante
   app.post("/api/participants", (req, res) => {
     const { id, fullName, registrationNumber, company, eventId, eventName, createdAt } = req.body;
 
@@ -357,8 +357,10 @@ async function startServer() {
     const trimmedMatricula = (registrationNumber || "").toString().replace(/\D/g, "").trim();
     const trimmedCompany = autoCorrectAndAccent((company || "").trim());
 
-    if (!trimmedName) {
-      res.status(400).json({ success: false, error: "Nome completo é obrigatório." });
+    // Validação estrita de Nome Completo (exige nome e sobrenome)
+    const nameValidation = isValidFullName(trimmedName);
+    if (!nameValidation.valid) {
+      res.status(400).json({ success: false, error: nameValidation.error });
       return;
     }
 
@@ -371,17 +373,40 @@ async function startServer() {
     const targetEventId = eventId || activeEvt?.id || "event_1";
     const targetEventName = eventName || activeEvt?.name || "Evento Corporativo";
 
-    // Verifica duplicação de matrícula dentro do mesmo evento (case-insensitive)
-    const exists = memoryParticipants.some(
+    // Verifica duplicação de matrícula ou nome dentro do mesmo evento (case-insensitive e sem acento)
+    const normalizedName = normalizeNameForComparison(trimmedName);
+    const existingSameMatricula = memoryParticipants.find(
       (p) =>
         p.registrationNumber.toLowerCase() === trimmedMatricula.toLowerCase() &&
         (!p.eventId || p.eventId === targetEventId)
     );
 
-    if (exists) {
+    const existingSameName = memoryParticipants.find(
+      (p) =>
+        normalizeNameForComparison(p.fullName) === normalizedName &&
+        (!p.eventId || p.eventId === targetEventId)
+    );
+
+    if (existingSameMatricula && existingSameName) {
       res.status(409).json({
         success: false,
-        error: `Já existe um participante com a matrícula "${trimmedMatricula}" neste evento.`,
+        error: `Já existe um participante com este nome ("${trimmedName}") e esta matrícula ("${trimmedMatricula}") neste evento.`,
+      });
+      return;
+    }
+
+    if (existingSameMatricula) {
+      res.status(409).json({
+        success: false,
+        error: `Já existe um participante com a matrícula "${trimmedMatricula}" neste evento (${existingSameMatricula.fullName}).`,
+      });
+      return;
+    }
+
+    if (existingSameName) {
+      res.status(409).json({
+        success: false,
+        error: `Já existe um participante cadastrado com o nome "${trimmedName}" neste evento (Matrícula: ${existingSameName.registrationNumber}). Não são permitidos nomes duplicados.`,
       });
       return;
     }
@@ -428,9 +453,17 @@ async function startServer() {
       const name = autoCorrectAndAccent((item.fullName || "").trim());
       if (!name || !matricula) continue;
 
+      // Valida se o nome é completo
+      if (!isValidFullName(name).valid) continue;
+
       const eventId = item.eventId || "event_1";
+      const normalizedName = normalizeNameForComparison(name);
+
       const alreadyExists = memoryParticipants.some(
-        (p) => p.registrationNumber.toLowerCase() === matricula.toLowerCase() && (!p.eventId || p.eventId === eventId)
+        (p) =>
+          (p.registrationNumber.toLowerCase() === matricula.toLowerCase() ||
+           normalizeNameForComparison(p.fullName) === normalizedName) &&
+          (!p.eventId || p.eventId === eventId)
       );
 
       if (!alreadyExists) {
@@ -606,8 +639,10 @@ async function startServer() {
     const rawCompany = company !== undefined ? company : current.company;
     const trimmedCompany = autoCorrectAndAccent((rawCompany || "").trim());
 
-    if (!trimmedName) {
-      res.status(400).json({ success: false, error: "O nome completo do participante é obrigatório." });
+    // Validação estrita de Nome Completo (exige nome e sobrenome)
+    const nameValidation = isValidFullName(trimmedName);
+    if (!nameValidation.valid) {
+      res.status(400).json({ success: false, error: nameValidation.error });
       return;
     }
 
@@ -617,12 +652,23 @@ async function startServer() {
     }
 
     const targetEventId = eventId !== undefined ? eventId : (current.eventId || "event_1");
-    // Verifica se outro participante já possui essa mesma matrícula no mesmo evento
-    const duplicate = memoryParticipants.some(
+
+    // Verifica se outro participante já possui essa mesma matrícula ou o mesmo nome no mesmo evento
+    const normalizedName = normalizeNameForComparison(trimmedName);
+    const duplicateMatricula = memoryParticipants.find(
       (p) => p.id !== id && p.registrationNumber.toLowerCase() === trimmedMatricula.toLowerCase() && (!p.eventId || p.eventId === targetEventId)
     );
-    if (duplicate) {
-      res.status(409).json({ success: false, error: `A matrícula "${trimmedMatricula}" já pertence a outro participante neste evento.` });
+    const duplicateName = memoryParticipants.find(
+      (p) => p.id !== id && normalizeNameForComparison(p.fullName) === normalizedName && (!p.eventId || p.eventId === targetEventId)
+    );
+
+    if (duplicateMatricula) {
+      res.status(409).json({ success: false, error: `A matrícula "${trimmedMatricula}" já pertence a outro participante neste evento (${duplicateMatricula.fullName}).` });
+      return;
+    }
+
+    if (duplicateName) {
+      res.status(409).json({ success: false, error: `Já existe outro participante com o nome "${trimmedName}" cadastrado neste evento (Matrícula: ${duplicateName.registrationNumber}). Não são permitidos nomes duplicados.` });
       return;
     }
 
