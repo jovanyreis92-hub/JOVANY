@@ -13,7 +13,8 @@ import {
   AlertTriangle, 
   CheckCircle2, 
   Timer,
-  Loader2
+  Loader2,
+  FileText
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem } from '../types';
 import { addParticipant, getStoredEvents, getActiveEvent } from '../utils/storage';
@@ -285,17 +286,26 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               </select>
             </div>
             {selectedEvent && (
-              <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-0.5">
+              <div className="space-y-2 pt-1">
                 {selectedEvent.location && (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="h-3 w-3 text-slate-400" />
-                    {selectedEvent.location}
-                  </span>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                    <span>{selectedEvent.location}</span>
+                  </div>
                 )}
                 {selectedEvent.description && (
-                  <span className="truncate max-w-[300px]">
-                    • {selectedEvent.description}
-                  </span>
+                  <div
+                    id="event-description-box"
+                    className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1"
+                  >
+                    <div className="flex items-center gap-1.5 text-slate-500 text-xs font-semibold uppercase tracking-wider">
+                      <FileText className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                      <span>Descrição ou Observações</span>
+                    </div>
+                    <p className="text-[14px] leading-relaxed text-slate-700 break-words whitespace-pre-line">
+                      {selectedEvent.description}
+                    </p>
+                  </div>
                 )}
               </div>
             )}
