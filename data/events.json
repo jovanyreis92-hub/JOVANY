@@ -1,0 +1,24 @@
+[
+  {
+    "id": "event_1",
+    "name": "Evento Corporativo & Treinamento 2026",
+    "date": "2026-09-20",
+    "location": "Auditório Principal - Sede",
+    "description": "Treinamento de integração corporativa e apresentação de metas estratégicas.",
+    "registrationStartDate": "2026-09-01T08:00",
+    "registrationEndDate": "2026-09-20T18:00",
+    "active": true,
+    "createdAt": "2026-09-12T00:00:00.000Z"
+  },
+  {
+    "id": "event_2",
+    "name": "Workshop de Tecnologia & Inovação",
+    "date": "2026-10-05",
+    "location": "Sala de Conferências A",
+    "description": "Capacitação prática em ferramentas digitais e inteligência artificial aplicada.",
+    "registrationStartDate": "2026-09-10T09:00",
+    "registrationEndDate": "2026-10-04T23:59",
+    "active": false,
+    "createdAt": "2026-09-14T00:00:00.000Z"
+  }
+]

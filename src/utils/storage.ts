@@ -1,6 +1,7 @@
 import { Participant, CompanySettings, EventItem, UserAccount, UserRole } from '../types';
 import { getEventRegistrationStatus } from './eventHelper';
 import { autoCorrectAndAccent, isValidFullName, normalizeNameForComparison } from './textCorrector';
+import { SHARED_CLOUD_APP_URL } from './urlHelper';
 
 const STORAGE_KEY = 'qr_event_participants_v1';
 const COMPANY_KEY = 'qr_event_company_settings_v1';
@@ -1427,6 +1428,53 @@ export async function syncWithServer(): Promise<void> {
       if (Array.isArray(serverEvents) && serverEvents.length > 0) {
         localStorage.setItem(EVENTS_KEY, JSON.stringify(serverEvents));
         window.dispatchEvent(new CustomEvent('events-updated', { detail: serverEvents }));
+      }
+    }
+
+    // Sincronização em nuvem cruzada: se estiver rodando no dev studio (ais-dev) ou em rede local,
+    // sincroniza com a URL pública compartilhada (ais-pre) para capturar cadastros feitos por participantes em 4G/5G
+    if (typeof window !== 'undefined') {
+      const currentOrigin = window.location.origin;
+      const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+      if (targetCloudUrl && currentOrigin !== targetCloudUrl) {
+        try {
+          const cloudRes = await fetch(`${targetCloudUrl}/api/participants?_t=${timestamp}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+          });
+          if (cloudRes.ok) {
+            const cloudParts: Participant[] = await cloudRes.json();
+            if (Array.isArray(cloudParts)) {
+              const localParts = getStoredParticipants();
+              const newFromCloud = cloudParts.filter((cp) => !localParts.some((lp) => lp.id === cp.id));
+
+              if (newFromCloud.length > 0) {
+                const merged = [...newFromCloud, ...localParts];
+                saveParticipants(merged);
+                fetch('/api/participants/batch', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ participants: newFromCloud }),
+                }).catch(() => {});
+
+                newFromCloud.forEach((p) => {
+                  window.dispatchEvent(new CustomEvent('participant-received', { detail: p }));
+                });
+              }
+
+              const missingInCloud = localParts.filter((lp) => !cloudParts.some((cp) => cp.id === lp.id));
+              if (missingInCloud.length > 0) {
+                fetch(`${targetCloudUrl}/api/participants/batch`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ participants: missingInCloud }),
+                }).catch(() => {});
+              }
+            }
+          }
+        } catch {
+          // Ponte com nuvem externa silenciosa
+        }
       }
     }
 
