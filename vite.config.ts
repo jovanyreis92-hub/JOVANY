@@ -15,6 +15,8 @@ export default defineConfig(() => {
       outDir: 'dist',
     },
     server: {
+      host: '0.0.0.0',
+      port: 3000,
       // Permite acesso de qualquer host externo (celulares em outras redes, 4G/5G, Cloud Run ais-pre)
       allowedHosts: true as const,
       hmr: process.env.DISABLE_HMR !== 'true',

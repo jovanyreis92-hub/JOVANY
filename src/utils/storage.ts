@@ -1,10 +1,12 @@
-import { Participant, CompanySettings, EventItem } from '../types';
+import { Participant, CompanySettings, EventItem, UserAccount, UserRole } from '../types';
 import { getEventRegistrationStatus } from './eventHelper';
 import { autoCorrectAndAccent, isValidFullName, normalizeNameForComparison } from './textCorrector';
 
 const STORAGE_KEY = 'qr_event_participants_v1';
 const COMPANY_KEY = 'qr_event_company_settings_v1';
 const EVENTS_KEY = 'qr_events_list_v1';
+const USERS_KEY = 'qr_event_users_v2';
+const CURRENT_USER_KEY = 'qr_current_user_v2';
 
 export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   companyName: 'Minha Empresa',
@@ -157,22 +159,391 @@ export function saveCompanySettings(settings: CompanySettings): void {
   }
 }
 
-export function verifyAdminPassword(password: string): boolean {
+export function getStoredUsers(): UserAccount[] {
+  try {
+    const raw = localStorage.getItem(USERS_KEY);
+    const settings = getCompanySettings();
+    const primaryUser = (settings.adminUsername || 'admin').trim().toLowerCase();
+    const primaryPass = (settings.adminPassword || '1234').trim();
+
+    if (!raw) {
+      const initialUsers: UserAccount[] = [
+        {
+          id: 'user_admin_primary',
+          username: primaryUser,
+          displayName: 'Administrador Principal',
+          password: primaryPass,
+          role: 'admin',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: null,
+          active: true,
+        },
+      ];
+      localStorage.setItem(USERS_KEY, JSON.stringify(initialUsers));
+      return initialUsers;
+    }
+
+    const parsed: UserAccount[] = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      // Garante que o usuário admin primário exista na lista para não perder acesso legado
+      const hasPrimary = parsed.some(
+        (u) => u.username.toLowerCase() === primaryUser
+      );
+      if (!hasPrimary) {
+        parsed.unshift({
+          id: 'user_admin_primary',
+          username: primaryUser,
+          displayName: 'Administrador Principal',
+          password: primaryPass,
+          role: 'admin',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: null,
+          active: true,
+        });
+        localStorage.setItem(USERS_KEY, JSON.stringify(parsed));
+      }
+      return parsed;
+    }
+
+    const fallbackUsers: UserAccount[] = [
+      {
+        id: 'user_admin_primary',
+        username: primaryUser,
+        displayName: 'Administrador Principal',
+        password: primaryPass,
+        role: 'admin',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: null,
+        active: true,
+      },
+    ];
+    localStorage.setItem(USERS_KEY, JSON.stringify(fallbackUsers));
+    return fallbackUsers;
+  } catch (e) {
+    console.error('Erro ao ler usuários do localStorage:', e);
+    return [
+      {
+        id: 'user_admin_primary',
+        username: 'admin',
+        displayName: 'Administrador Principal',
+        password: '1234',
+        role: 'admin',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: null,
+        active: true,
+      },
+    ];
+  }
+}
+
+export function saveStoredUsers(users: UserAccount[]): void {
+  try {
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    window.dispatchEvent(new CustomEvent('users-updated', { detail: users }));
+  } catch (e) {
+    console.error('Erro ao salvar usuários no localStorage:', e);
+  }
+}
+
+export function getCurrentUser(): UserAccount | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(CURRENT_USER_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function setCurrentUser(user: UserAccount | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (user) {
+      sessionStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+    } else {
+      sessionStorage.removeItem(CURRENT_USER_KEY);
+    }
+    window.dispatchEvent(new CustomEvent('current-user-changed', { detail: user }));
+  } catch (e) {
+    console.error('Erro ao salvar usuário atual na sessão:', e);
+  }
+}
+
+export function registerNewUser(data: {
+  username: string;
+  password: string;
+  displayName?: string;
+  role?: UserRole;
+}): { success: boolean; error?: string; user?: UserAccount } {
+  const cleanUsername = data.username.trim().toLowerCase();
+  const cleanPass = data.password.trim();
+  const cleanName = data.displayName?.trim() || '';
+
+  if (!cleanUsername || cleanUsername.length < 3) {
+    return {
+      success: false,
+      error: 'O login (nome de usuário) deve conter pelo menos 3 caracteres.',
+    };
+  }
+
+  // Verifica caracteres permitidos: letras, números, hífen, underline ou ponto
+  if (!/^[a-z0-9_.-]+$/.test(cleanUsername)) {
+    return {
+      success: false,
+      error: 'O login deve conter apenas letras minúsculas, números, ponto, hífen ou underline (sem espaços ou acentos).',
+    };
+  }
+
+  if (!cleanPass || cleanPass.length < 3) {
+    return {
+      success: false,
+      error: 'A senha deve conter pelo menos 3 caracteres.',
+    };
+  }
+
+  const users = getStoredUsers();
+  const alreadyExists = users.some(
+    (u) => u.username.toLowerCase() === cleanUsername
+  );
+
+  if (alreadyExists) {
+    return {
+      success: false,
+      error: `O login "${cleanUsername}" já está em uso por outro usuário. Escolha outro nome ou acesse com sua senha.`,
+    };
+  }
+
+  const newUser: UserAccount = {
+    id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    username: cleanUsername,
+    displayName: cleanName || cleanUsername,
+    password: cleanPass,
+    role: data.role || 'admin',
+    createdAt: new Date().toISOString(),
+    lastLoginAt: null,
+    active: true,
+  };
+
+  const updatedUsers = [...users, newUser];
+  saveStoredUsers(updatedUsers);
+
+  return { success: true, user: newUser };
+}
+
+export function updateUserPassword(
+  userIdOrUsername: string,
+  newPassword: string
+): { success: boolean; error?: string } {
+  const cleanPass = newPassword.trim();
+  if (!cleanPass || cleanPass.length < 3) {
+    return { success: false, error: 'A nova senha deve ter pelo menos 3 caracteres.' };
+  }
+
+  const users = getStoredUsers();
+  const targetIndex = users.findIndex(
+    (u) =>
+      u.id === userIdOrUsername ||
+      u.username.toLowerCase() === userIdOrUsername.toLowerCase()
+  );
+
+  if (targetIndex === -1) {
+    return { success: false, error: 'Usuário não encontrado para atualizar senha.' };
+  }
+
+  users[targetIndex].password = cleanPass;
+  saveStoredUsers(users);
+
+  // Se for o admin das configurações da empresa, sincroniza
   const settings = getCompanySettings();
-  const validPassword = settings.adminPassword || '1234';
-  return password.trim() === validPassword.trim();
+  if (
+    (settings.adminUsername || 'admin').trim().toLowerCase() ===
+    users[targetIndex].username.toLowerCase()
+  ) {
+    saveCompanySettings({
+      ...settings,
+      adminPassword: cleanPass,
+    });
+  }
+
+  // Se for o usuário conectado na sessão atual, atualiza
+  const current = getCurrentUser();
+  if (current && current.id === users[targetIndex].id) {
+    setCurrentUser({ ...current, password: cleanPass });
+  }
+
+  return { success: true };
+}
+
+export function updateUserAccount(
+  userId: string,
+  updates: Partial<Omit<UserAccount, 'id' | 'createdAt'>>
+): { success: boolean; error?: string } {
+  const users = getStoredUsers();
+  const index = users.findIndex((u) => u.id === userId);
+  if (index === -1) {
+    return { success: false, error: 'Usuário não encontrado.' };
+  }
+
+  if (updates.username) {
+    const cleanUser = updates.username.trim().toLowerCase();
+    if (cleanUser.length < 3) {
+      return { success: false, error: 'O login deve ter pelo menos 3 caracteres.' };
+    }
+    const duplicate = users.some(
+      (u) => u.id !== userId && u.username.toLowerCase() === cleanUser
+    );
+    if (duplicate) {
+      return { success: false, error: `O login "${cleanUser}" já está em uso.` };
+    }
+    users[index].username = cleanUser;
+  }
+
+  if (updates.displayName !== undefined) {
+    users[index].displayName = updates.displayName.trim() || users[index].username;
+  }
+
+  if (updates.role) {
+    users[index].role = updates.role;
+  }
+
+  if (updates.active !== undefined) {
+    users[index].active = updates.active;
+  }
+
+  if (updates.password && updates.password.trim().length >= 3) {
+    users[index].password = updates.password.trim();
+  }
+
+  saveStoredUsers(users);
+
+  const current = getCurrentUser();
+  if (current && current.id === userId) {
+    setCurrentUser({ ...current, ...users[index] });
+  }
+
+  return { success: true };
+}
+
+export function deleteUserAccount(
+  userId: string,
+  currentSessionUserIdOrUsername?: string
+): { success: boolean; error?: string } {
+  const users = getStoredUsers();
+  if (users.length <= 1) {
+    return {
+      success: false,
+      error: 'Não é possível excluir o único login do sistema. Deve haver ao menos uma conta cadastrada.',
+    };
+  }
+
+  const target = users.find(
+    (u) =>
+      u.id === userId ||
+      u.username.toLowerCase() === userId.toLowerCase()
+  );
+
+  if (!target) {
+    return { success: false, error: 'Usuário não encontrado para exclusão.' };
+  }
+
+  const currentUser = getCurrentUser();
+  const isCurrentSession =
+    (currentUser && (currentUser.id === target.id || currentUser.username.toLowerCase() === target.username.toLowerCase())) ||
+    (currentSessionUserIdOrUsername &&
+      (currentSessionUserIdOrUsername === target.id ||
+        currentSessionUserIdOrUsername.toLowerCase() === target.username.toLowerCase()));
+
+  if (isCurrentSession) {
+    return {
+      success: false,
+      error: 'Não é possível excluir a conta que está conectada nesta sessão. Alterne para outro login antes de excluí-la.',
+    };
+  }
+
+  const updated = users.filter((u) => u.id !== target.id);
+  saveStoredUsers(updated);
+  return { success: true };
+}
+
+export function verifyAdminPassword(password: string): boolean {
+  const cleanPass = password.trim();
+  const users = getStoredUsers();
+  // Verifica se a senha confere com qualquer usuário ativo
+  const matched = users.some((u) => u.active && u.password.trim() === cleanPass);
+  if (matched) return true;
+
+  // Fallback para configurações
+  const settings = getCompanySettings();
+  const validPassword = (settings.adminPassword || '1234').trim();
+  return cleanPass === validPassword;
 }
 
 export function verifyAdminCredentials(username: string, password: string): boolean {
-  const settings = getCompanySettings();
-  const validUser = (settings.adminUsername || 'admin').trim().toLowerCase();
-  const validPassword = (settings.adminPassword || '1234').trim();
+  const cleanUser = username.trim().toLowerCase();
+  const cleanPass = password.trim();
+  const users = getStoredUsers();
 
-  const inputUser = username.trim().toLowerCase();
-  const inputPass = password.trim();
+  // 1. Busca usuário na lista de usuários cadastrados
+  let matchedUser: UserAccount | undefined;
 
-  const userMatches = !inputUser || inputUser === validUser || inputUser === 'admin';
-  return userMatches && inputPass === validPassword;
+  if (!cleanUser) {
+    // Se o campo de usuário foi deixado vazio, tenta autenticar o admin principal se a senha coincidir
+    matchedUser = users.find(
+      (u) => u.active && (u.username === 'admin' || u.role === 'admin') && u.password.trim() === cleanPass
+    );
+    if (!matchedUser) {
+      // Se não encontrou admin, tenta qualquer usuário cuja senha seja idêntica se houver apenas um
+      matchedUser = users.find((u) => u.active && u.password.trim() === cleanPass);
+    }
+  } else {
+    matchedUser = users.find(
+      (u) => u.active && u.username.toLowerCase() === cleanUser && u.password.trim() === cleanPass
+    );
+  }
+
+  // 2. Fallback para as credenciais da empresa (caso o localStorage de usuários não tenha sido atualizado)
+  if (!matchedUser) {
+    const settings = getCompanySettings();
+    const fallbackUser = (settings.adminUsername || 'admin').trim().toLowerCase();
+    const fallbackPass = (settings.adminPassword || '1234').trim();
+
+    if ((!cleanUser || cleanUser === fallbackUser || cleanUser === 'admin') && cleanPass === fallbackPass) {
+      matchedUser = {
+        id: 'user_admin_primary',
+        username: fallbackUser,
+        displayName: 'Administrador Principal',
+        password: fallbackPass,
+        role: 'admin',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+        active: true,
+      };
+      // Registra ou atualiza esse usuário no storage para persistência futura
+      const exists = users.some((u) => u.username.toLowerCase() === fallbackUser);
+      if (!exists) {
+        saveStoredUsers([...users, matchedUser]);
+      }
+    }
+  }
+
+  if (matchedUser) {
+    // Atualiza data do último login
+    const updatedUsers = users.map((u) => {
+      if (u.id === matchedUser!.id || u.username.toLowerCase() === matchedUser!.username.toLowerCase()) {
+        return { ...u, lastLoginAt: new Date().toISOString() };
+      }
+      return u;
+    });
+    saveStoredUsers(updatedUsers);
+
+    // Registra sessão e usuário autenticado
+    setCurrentUser(matchedUser);
+    setAdminLoggedIn(true);
+    return true;
+  }
+
+  return false;
 }
 
 export function isAdminLoggedIn(): boolean {
@@ -186,12 +557,13 @@ export function setAdminLoggedIn(loggedIn: boolean): void {
     sessionStorage.setItem('qr_admin_authenticated', 'true');
   } else {
     sessionStorage.removeItem('qr_admin_authenticated');
+    setCurrentUser(null);
   }
   window.dispatchEvent(new CustomEvent('admin-auth-changed', { detail: loggedIn }));
 }
 
 export function registerAdminCredentials(username: string, password: string): { success: boolean; error?: string } {
-  const cleanUser = username.trim();
+  const cleanUser = username.trim().toLowerCase();
   const cleanPass = password.trim();
 
   if (!cleanUser || cleanUser.length < 3) {
@@ -202,6 +574,32 @@ export function registerAdminCredentials(username: string, password: string): { 
     return { success: false, error: 'A senha deve conter pelo menos 3 caracteres.' };
   }
 
+  const users = getStoredUsers();
+  const existingIndex = users.findIndex((u) => u.username.toLowerCase() === cleanUser);
+
+  if (existingIndex !== -1) {
+    // Se o usuário já existe, atualiza a senha dele
+    users[existingIndex].password = cleanPass;
+    saveStoredUsers(users);
+    const updatedUser = users[existingIndex];
+    setCurrentUser(updatedUser);
+  } else {
+    // Cadastra como novo usuário com acesso
+    const regResult = registerNewUser({
+      username: cleanUser,
+      password: cleanPass,
+      displayName: cleanUser,
+      role: 'admin',
+    });
+    if (!regResult.success) {
+      return regResult;
+    }
+    if (regResult.user) {
+      setCurrentUser(regResult.user);
+    }
+  }
+
+  // Sincroniza com as configurações da empresa para compatibilidade
   const current = getCompanySettings();
   saveCompanySettings({
     ...current,
@@ -215,6 +613,13 @@ export function registerAdminCredentials(username: string, password: string): { 
 export function updateAdminPassword(newPassword: string): boolean {
   if (!newPassword || newPassword.trim().length === 0) return false;
   const current = getCompanySettings();
+  const adminUser = (current.adminUsername || 'admin').trim().toLowerCase();
+
+  const updateResult = updateUserPassword(adminUser, newPassword.trim());
+  if (!updateResult.success) {
+    return false;
+  }
+
   saveCompanySettings({
     ...current,
     adminPassword: newPassword.trim(),

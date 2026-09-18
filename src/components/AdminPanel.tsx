@@ -28,9 +28,11 @@ import {
   Palette,
   Calendar,
   Filter,
-  Pencil
+  Pencil,
+  LogOut,
+  Sparkles
 } from 'lucide-react';
-import { Participant, CompanySettings, EventItem } from '../types';
+import { Participant, CompanySettings, EventItem, UserAccount, UserRole } from '../types';
 import { 
   deleteParticipant, 
   deleteMultipleParticipants, 
@@ -40,11 +42,15 @@ import {
   registerAdminCredentials,
   verifyAdminPassword,
   getStoredEvents,
-  syncWithServer
+  syncWithServer,
+  getStoredUsers,
+  registerNewUser,
+  getCurrentUser
 } from '../utils/storage';
 import { exportToExcel, exportToPDF } from '../utils/export';
 import { QrBadgeModal } from './QrBadgeModal';
 import { AdminCredentialsModal } from './AdminCredentialsModal';
+import { UsersManagementModal } from './UsersManagementModal';
 import { QrScanner } from './QrScanner';
 import { EventManager } from './EventManager';
 import { EditParticipantModal } from './EditParticipantModal';
@@ -77,6 +83,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [showPasswordText, setShowPasswordText] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Usuário atualmente autenticado e contagem de usuários
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getCurrentUser());
+  const [usersCount, setUsersCount] = useState<number>(() => getStoredUsers().length);
+
   // Campos para Registro Direto de Login e Senha
   const [regUsername, setRegUsername] = useState('');
   const [regPassword, setRegPassword] = useState('');
@@ -86,6 +96,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Modal para registrar/alterar credenciais quando logado
   const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
+
+  // Sincroniza usuário e contagem quando eventos de usuários disparam
+  useEffect(() => {
+    const handleUsersChange = () => {
+      setCurrentUser(getCurrentUser());
+      setUsersCount(getStoredUsers().length);
+    };
+    window.addEventListener('users-updated', handleUsersChange);
+    window.addEventListener('current-user-changed', handleUsersChange);
+    return () => {
+      window.removeEventListener('users-updated', handleUsersChange);
+      window.removeEventListener('current-user-changed', handleUsersChange);
+    };
+  }, []);
 
   // Filtros e busca
   const [searchTerm, setSearchTerm] = useState('');
@@ -185,8 +209,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setIsAuthenticated(true);
       setAuthError(null);
       setPasswordInput('');
+      const loggedUser = getCurrentUser();
+      setCurrentUser(loggedUser);
+      showToast(
+        `Bem-vindo(a), ${loggedUser?.displayName || loggedUser?.username || 'Administrador'}!`,
+        'success'
+      );
     } else {
-      setAuthError('Login ou senha incorretos. Por favor, verifique suas credenciais de administrador.');
+      setAuthError('Login ou senha incorretos. Por favor, verifique suas credenciais de acesso.');
     }
   };
 
@@ -194,11 +224,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     e.preventDefault();
     setRegError(null);
 
-    const cleanUser = regUsername.trim();
+    const cleanUser = regUsername.trim().toLowerCase();
     const cleanPass = regPassword.trim();
 
     if (!cleanUser || cleanUser.length < 3) {
       setRegError('O login (nome de usuário) deve conter pelo menos 3 caracteres.');
+      return;
+    }
+
+    if (!/^[a-z0-9_.-]+$/.test(cleanUser)) {
+      setRegError('O login deve conter apenas letras minúsculas, números, ponto, hífen ou underline (sem espaços ou acentos).');
       return;
     }
 
@@ -212,12 +247,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
 
-    const result = registerAdminCredentials(cleanUser, cleanPass);
+    const result = registerNewUser({
+      username: cleanUser,
+      password: cleanPass,
+      displayName: cleanUser,
+      role: 'admin',
+    });
+
     if (!result.success) {
       setRegError(result.error || 'Erro ao registrar credenciais.');
       return;
     }
 
+    // Autentica com o novo login recém-criado
+    verifyAdminCredentials(cleanUser, cleanPass);
     setIsAuthenticated(true);
     setUsernameInput(cleanUser);
     setPasswordInput('');
@@ -225,7 +268,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setRegPassword('');
     setRegConfirmPassword('');
     setAuthMode('login');
-    showToast(`Login "${cleanUser}" e senha registrados com sucesso!`, 'success');
+    showToast(`Novo login "@${cleanUser}" registrado com sucesso! Acesso liberado.`, 'success');
     onUpdateParticipants();
   };
 
@@ -403,13 +446,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   setAuthMode('register');
                   setRegError(null);
                 }}
-                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   authMode === 'register'
                     ? 'bg-sky-600 text-white shadow-xs'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Registrar Acesso
+                <UserPlus className="h-3.5 w-3.5" />
+                <span>Novo Login</span>
               </button>
             </div>
           </div>
@@ -417,6 +461,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {/* Modo 1: Acessar com Login e Senha */}
           {authMode === 'login' ? (
             <form onSubmit={handleLogin} className="p-6 space-y-4">
+              <div className="flex items-center justify-between text-xs text-slate-500 pb-1 border-b border-slate-100">
+                <span>Insira suas credenciais cadastradas</span>
+                <span className="font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-100">
+                  {usersCount} {usersCount === 1 ? 'login ativo' : 'logins ativos'}
+                </span>
+              </div>
+
               {authError && (
                 <div
                   id="admin-auth-error"
@@ -444,7 +495,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     type="text"
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
-                    placeholder="Digite seu login"
+                    placeholder="Digite seu login (ex: admin, operador, recepcao)"
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-sm"
                     autoFocus
                     required
@@ -505,13 +556,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }}
                   className="text-xs text-sky-600 hover:text-sky-800 font-medium transition-colors cursor-pointer"
                 >
-                  Deseja registrar novo login e senha? <strong>Clique aqui</strong>
+                  Deseja cadastrar novo login com outro usuário e senha? <strong>Clique aqui</strong>
                 </button>
               </div>
             </form>
           ) : (
             /* Modo 2: Registrar Novo Login e Senha */
-            <form onSubmit={handleRegisterFromLockScreen} className="p-6 space-y-4">
+            <form onSubmit={handleRegisterFromLockScreen} className="p-6 space-y-3.5">
+              <div className="bg-sky-50/80 border border-sky-200/80 rounded-xl p-3 text-xs text-sky-950 flex items-start gap-2">
+                <Sparkles className="h-4 w-4 text-sky-600 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  Cadastre novos usuários com nomes e senhas diferentes. Todos os logins cadastrados terão acesso garantido ao sistema.
+                </p>
+              </div>
+
               {regError && (
                 <div
                   id="admin-reg-error"
@@ -522,15 +580,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               )}
 
-              <div className="space-y-1.5">
+              {/* Login / Usuário */}
+              <div className="space-y-1">
                 <label
                   htmlFor="input-reg-username"
                   className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
                 >
-                  Novo Login / Usuário
+                  Novo Login / Usuário <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                     <User className="h-4 w-4" />
                   </div>
                   <input
@@ -538,76 +597,76 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     type="text"
                     value={regUsername}
                     onChange={(e) => setRegUsername(e.target.value)}
-                    placeholder="Ex: admin, gestor, coordenador"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-sm"
+                    placeholder="Ex: recepcao, gestor, juliana"
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-xs"
                     autoFocus
                     required
                   />
                 </div>
-                <p className="text-[11px] text-slate-400">Mínimo de 3 caracteres.</p>
+                <p className="text-[10px] text-slate-400">Min. 3 letras/números (sem espaços ou acentos)</p>
               </div>
 
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="input-reg-password"
-                  className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
-                >
-                  Nova Senha
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    <Lock className="h-4 w-4" />
-                  </div>
-                  <input
-                    id="input-reg-password"
-                    type={regShowPassword ? 'text' : 'password'}
-                    value={regPassword}
-                    onChange={(e) => setRegPassword(e.target.value)}
-                    placeholder="Mínimo 3 caracteres"
-                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-sm font-mono tracking-wider"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setRegShowPassword(!regShowPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                    tabIndex={-1}
+              {/* Senhas */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="input-reg-password"
+                    className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
                   >
-                    {regShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                    Senha <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="input-reg-password"
+                      type={regShowPassword ? 'text' : 'password'}
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="Mínimo 3 dígitos"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-xs font-mono"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor="input-reg-confirm-password"
+                    className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
+                  >
+                    Confirmar <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="input-reg-confirm-password"
+                      type={regShowPassword ? 'text' : 'password'}
+                      value={regConfirmPassword}
+                      onChange={(e) => setRegConfirmPassword(e.target.value)}
+                      placeholder="Repita a senha"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-xs font-mono"
+                      required
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="input-reg-confirm-password"
-                  className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
+              <div className="flex items-center justify-between pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setRegShowPassword(!regShowPassword)}
+                  className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
                 >
-                  Confirmar Senha
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    <ShieldCheck className="h-4 w-4" />
-                  </div>
-                  <input
-                    id="input-reg-confirm-password"
-                    type={regShowPassword ? 'text' : 'password'}
-                    value={regConfirmPassword}
-                    onChange={(e) => setRegConfirmPassword(e.target.value)}
-                    placeholder="Repita a senha para confirmar"
-                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-sm font-mono tracking-wider"
-                    required
-                  />
-                </div>
+                  {regShowPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  <span>{regShowPassword ? 'Ocultar' : 'Ver senha'}</span>
+                </button>
               </div>
 
               <button
                 id="btn-admin-register-submit"
                 type="submit"
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm cursor-pointer mt-2"
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl font-semibold text-xs transition-colors shadow-sm cursor-pointer mt-1"
               >
-                <UserCheck className="h-4 w-4" />
-                <span>Salvar e Acessar Painel</span>
+                <UserPlus className="h-4 w-4" />
+                <span>Cadastrar Novo Login e Acessar</span>
               </button>
 
               <div className="pt-2 text-center border-t border-slate-100">
@@ -652,7 +711,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </span>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-800 border border-sky-200">
               <UserCheck className="h-3.5 w-3.5 text-sky-600" />
-              <span>Login: <strong>{companySettings?.adminUsername || 'admin'}</strong></span>
+              <span>
+                Usuário Conectado: <strong>@{currentUser?.username || companySettings?.adminUsername || 'admin'}</strong>
+              </span>
             </span>
           </div>
           <h2 className="text-2xl font-bold text-slate-900 mt-1">
@@ -663,7 +724,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </p>
         </div>
 
-        {/* Botões de Ação Global (Sincronizar, Exportar PDF, Excel, Credenciais, Compartilhar, Logomarca) */}
+        {/* Botões de Ação Global (Sincronizar, Usuários/Logins, Compartilhar, Logomarca, Excel, PDF, Sair) */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             id="btn-admin-sync-now"
@@ -682,10 +743,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             type="button"
             onClick={() => setIsCredentialsModalOpen(true)}
             className="flex items-center gap-1.5 py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-            title="Registrar ou alterar login e senha do painel de controle"
+            title="Cadastrar e gerenciar múltiplos logins com diferentes usuários e senhas"
           >
-            <KeyRound className="h-4 w-4 text-indigo-600" />
-            <span>Login e Senha</span>
+            <Users className="h-4 w-4 text-indigo-600" />
+            <span>Usuários & Logins ({usersCount})</span>
           </button>
 
           {onOpenMobileShare && (
@@ -713,6 +774,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <span>Layout & Logomarca</span>
             </button>
           )}
+
+          <button
+            id="btn-admin-logout"
+            type="button"
+            onClick={() => {
+              setIsAuthenticated(false);
+              showToast('Sessão encerrada com sucesso.', 'info');
+            }}
+            className="flex items-center gap-1.5 py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            title="Sair do painel para alternar de usuário ou bloquear a tela"
+          >
+            <LogOut className="h-4 w-4 text-rose-600" />
+            <span>Sair</span>
+          </button>
 
           <button
             id="btn-export-excel"

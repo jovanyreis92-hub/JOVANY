@@ -49,6 +49,19 @@ export interface CompanySettings {
 
 export type ActiveTab = 'register' | 'scanner' | 'admin';
 
+export type UserRole = 'admin' | 'operator' | 'coordinator';
+
+export interface UserAccount {
+  id: string;
+  username: string;          // Login / nome de usuário único
+  displayName?: string;      // Nome visível / identificação
+  password: string;          // Senha de acesso
+  role: UserRole;            // Perfil de acesso
+  createdAt: string;         // Data de criação ISO
+  lastLoginAt?: string | null; // Data do último login registrado
+  active: boolean;           // Status de ativação
+}
+
 export interface ScanResult {
   type: 'success' | 'already_checked' | 'not_found' | 'error';
   message: string;
