@@ -339,7 +339,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
                   {evt.location && (
                     <div className="flex items-center gap-2">
                       <MapPin className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                      <span>{evt.location}</span>
+                      <span className="font-medium text-slate-800">Local: {evt.location}</span>
                     </div>
                   )}
                   {evt.description && (
@@ -517,13 +517,13 @@ export const EventManager: React.FC<EventManagerProps> = ({
 
                 <div className="space-y-1.5">
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
-                    Local / Auditório
+                    Local do Evento ou Reunião
                   </label>
                   <input
                     type="text"
                     value={formLocation}
                     onChange={(e) => setFormLocation(e.target.value)}
-                    placeholder="Ex: Auditório Central, 3º andar"
+                    placeholder="Ex: Auditório Principal, Sala 04, Sede ou Online"
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-sm"
                   />
                 </div>

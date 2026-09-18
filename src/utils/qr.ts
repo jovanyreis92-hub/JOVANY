@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 import { Participant, QrPayload } from '../types';
-import { getCompanySettings } from './storage';
+import { getCompanySettings, getStoredEvents } from './storage';
 
 export function createQrPayload(participant: Participant): string {
   const payload: QrPayload = {
@@ -168,21 +168,32 @@ export async function downloadBadgeImage(participant: Participant): Promise<void
   // Empresa
   ctx.fillStyle = '#475569';
   ctx.font = '16px sans-serif';
-  ctx.fillText(`EMPRESA: ${participant.company}`, width / 2, 660);
+  ctx.fillText(`EMPRESA: ${participant.company}`, width / 2, 655);
+
+  // Local do Evento ou Reunião
+  const events = getStoredEvents();
+  const matchedEvent = events.find((e) => e.id === participant.eventId || e.name === participant.eventName);
+  const locationText = matchedEvent?.location || '';
+  if (locationText) {
+    ctx.fillStyle = '#0369a1';
+    ctx.font = 'bold 13px sans-serif';
+    const displayLocation = locationText.length > 45 ? locationText.substring(0, 42) + '...' : locationText;
+    ctx.fillText(`LOCAL: ${displayLocation.toUpperCase()}`, width / 2, 685);
+  }
 
   // Linha divisória
   ctx.strokeStyle = '#cbd5e1';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(80, 700);
-  ctx.lineTo(520, 700);
+  ctx.moveTo(80, 712);
+  ctx.lineTo(520, 712);
   ctx.stroke();
 
   // Rodapé de segurança
   ctx.fillStyle = '#64748b';
   ctx.font = '12px sans-serif';
-  ctx.fillText(`Identificador Único: ${participant.id}`, width / 2, 740);
-  ctx.fillText(`Cadastrado em: ${new Date(participant.createdAt).toLocaleDateString('pt-BR')}`, width / 2, 765);
+  ctx.fillText(`Identificador Único: ${participant.id}`, width / 2, 745);
+  ctx.fillText(`Cadastrado em: ${new Date(participant.createdAt).toLocaleDateString('pt-BR')}`, width / 2, 770);
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '11px sans-serif';

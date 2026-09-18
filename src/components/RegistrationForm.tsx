@@ -232,7 +232,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               </h2>
               <p className="text-slate-300 text-sm mt-1">
                 {selectedEvent 
-                  ? `${selectedEvent.name} • Preencha os dados para gerar sua credencial com QR Code.`
+                  ? `${selectedEvent.name}${selectedEvent.location ? ` (${selectedEvent.location})` : ''} • Preencha os dados para gerar sua credencial com QR Code.`
                   : 'Preencha os dados abaixo para gerar instantaneamente seu QR Code individual de credenciamento.'}
               </p>
             </div>
@@ -280,19 +280,30 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               >
                 {events.map((evt) => (
                   <option key={evt.id} value={evt.id}>
-                    {evt.name} {evt.date ? `(${new Date(evt.date + 'T12:00:00').toLocaleDateString('pt-BR')})` : ''} {evt.active ? '★ [Ativo]' : ''}
+                    {evt.name} {evt.date ? `(${new Date(evt.date + 'T12:00:00').toLocaleDateString('pt-BR')})` : ''} {evt.location ? `• ${evt.location}` : ''} {evt.active ? '★ [Ativo]' : ''}
                   </option>
                 ))}
               </select>
             </div>
             {selectedEvent && (
-              <div className="space-y-2 pt-1">
-                {selectedEvent.location && (
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                    <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                    <span>{selectedEvent.location}</span>
+              <div className="space-y-2.5 pt-1">
+                {/* Local do Evento ou Reunião */}
+                <div
+                  id="event-location-box"
+                  className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1"
+                >
+                  <div className="flex items-center gap-1.5 text-slate-500 text-xs font-semibold uppercase tracking-wider">
+                    <MapPin className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                    <span>Local do Evento ou Reunião</span>
                   </div>
-                )}
+                  <p className="text-[14px] font-semibold text-slate-800 break-words">
+                    {selectedEvent.location && selectedEvent.location.trim()
+                      ? selectedEvent.location
+                      : 'Auditório Principal - Sede da Empresa'}
+                  </p>
+                </div>
+
+                {/* Descrição ou Observações */}
                 {selectedEvent.description && (
                   <div
                     id="event-description-box"

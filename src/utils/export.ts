@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ExcelJS from 'exceljs';
 import { Participant } from '../types';
-import { getCompanySettings } from './storage';
+import { getCompanySettings, getStoredEvents } from './storage';
 
 export async function exportToExcel(
   participants: Participant[], 
@@ -15,6 +15,9 @@ export async function exportToExcel(
   const ausentes = total - presentes;
   const taxaPresenca = total > 0 ? `${((presentes / total) * 100).toFixed(1)}%` : '0%';
   const displayEventName = eventNameFilter || company.eventName || 'Evento Geral';
+  const events = getStoredEvents();
+  const matchedEvent = events.find((e) => e.name === displayEventName || e.id === displayEventName);
+  const eventLoc = matchedEvent?.location || '';
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = company.companyName || 'Sistema de Credenciamento';
@@ -36,7 +39,7 @@ export async function exportToExcel(
 
   sheet.mergeCells('A2:G2');
   const subCell = sheet.getCell('A2');
-  subCell.value = `Evento: ${displayEventName} | Emitido em: ${new Date().toLocaleString('pt-BR')}`;
+  subCell.value = `Evento: ${displayEventName}${eventLoc ? ` | Local: ${eventLoc}` : ''} | Emitido em: ${new Date().toLocaleString('pt-BR')}`;
   subCell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF334155' } };
   subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
   subCell.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -250,6 +253,9 @@ export function exportToPDF(
   const taxaPresenca = total > 0 ? `${((presentes / total) * 100).toFixed(1)}%` : '0%';
   const dataEmissao = new Date().toLocaleString('pt-BR');
   const displayEvent = eventNameFilter || company.eventName || 'Evento Geral';
+  const pdfEvents = getStoredEvents();
+  const matchedPdfEvent = pdfEvents.find((e) => e.name === displayEvent || e.id === displayEvent);
+  const pdfEventLoc = matchedPdfEvent?.location || '';
 
   // Cabeçalho institucional centralizado na página A4 (largura 210mm, centro = 105mm)
   doc.setFillColor(15, 23, 42); // slate-900
@@ -266,7 +272,7 @@ export function exportToPDF(
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(56, 189, 248); // sky-400
-  doc.text(`Evento: ${displayEvent}`, 105, 18, { align: 'center' });
+  doc.text(`Evento: ${displayEvent}${pdfEventLoc ? ` | Local: ${pdfEventLoc}` : ''}`, 105, 18, { align: 'center' });
 
   doc.setTextColor(203, 213, 225); // slate-300
   doc.setFontSize(8);

@@ -11,7 +11,8 @@ import {
   Save, 
   AlertCircle,
   Loader2,
-  QrCode
+  QrCode,
+  MapPin
 } from 'lucide-react';
 import { Participant, EventItem } from '../types';
 import { updateParticipant } from '../utils/storage';
@@ -289,6 +290,16 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
                 ))}
               </select>
             </div>
+            {(() => {
+              const evt = events.find((e) => e.id === selectedEventId);
+              if (!evt?.location) return null;
+              return (
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-1 pl-1">
+                  <MapPin className="h-3 w-3 text-amber-600 shrink-0" />
+                  <span>Local do Evento ou Reunião: <strong className="text-slate-700">{evt.location}</strong></span>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Campo: Status de Presença */}

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { X, Download, QrCode, CheckCircle2, Shield, Building2, Hash, IdCard, Sparkles } from 'lucide-react';
+import { X, Download, QrCode, CheckCircle2, Shield, Building2, Hash, IdCard, Sparkles, MapPin, Calendar } from 'lucide-react';
 import { Participant } from '../types';
 import { createQrPayload, generateQrCodeDataUrl, downloadQrCodeImage, downloadBadgeImage } from '../utils/qr';
-import { getCompanySettings } from '../utils/storage';
+import { getCompanySettings, getStoredEvents } from '../utils/storage';
 
 interface QrBadgeModalProps {
   participant: Participant | null;
@@ -19,6 +19,9 @@ export const QrBadgeModal: React.FC<QrBadgeModalProps> = ({
   const [isDownloadingQr, setIsDownloadingQr] = useState(false);
   const [isDownloadingBadge, setIsDownloadingBadge] = useState(false);
   const companySettings = getCompanySettings();
+  const events = getStoredEvents();
+  const currentEvent = events.find((e) => e.id === participant?.eventId || e.name === participant?.eventName);
+  const eventLocation = currentEvent?.location || '';
 
   useEffect(() => {
     if (!participant) {
@@ -160,6 +163,26 @@ export const QrBadgeModal: React.FC<QrBadgeModalProps> = ({
                 {participant.company}
               </span>
             </div>
+            {participant.eventName && (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 flex items-center gap-1">
+                  <Calendar className="h-3.5 w-3.5 text-slate-400" /> Evento:
+                </span>
+                <span className="font-semibold text-slate-800 text-right truncate max-w-[200px]" title={participant.eventName}>
+                  {participant.eventName}
+                </span>
+              </div>
+            )}
+            {eventLocation && (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5 text-sky-600" /> Local do Evento ou Reunião:
+                </span>
+                <span className="font-semibold text-slate-800 text-right truncate max-w-[200px]" title={eventLocation}>
+                  {eventLocation}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-slate-500 flex items-center gap-1">
                 <Shield className="h-3.5 w-3.5 text-slate-400" /> Status:
