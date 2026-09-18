@@ -22,7 +22,6 @@ import {
   EyeOff,
   ImageIcon,
   User,
-  UserCheck,
   Share2,
   Camera,
   Palette,
@@ -32,7 +31,7 @@ import {
   LogOut,
   Sparkles
 } from 'lucide-react';
-import { Participant, CompanySettings, EventItem, UserAccount, UserRole } from '../types';
+import { Participant, CompanySettings, EventItem, UserAccount } from '../types';
 import { 
   deleteParticipant, 
   deleteMultipleParticipants, 
@@ -461,11 +460,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {/* Modo 1: Acessar com Login e Senha */}
           {authMode === 'login' ? (
             <form onSubmit={handleLogin} className="p-6 space-y-4">
-              <div className="flex items-center justify-between text-xs text-slate-500 pb-1 border-b border-slate-100">
+              <div className="text-xs text-slate-500 pb-1 border-b border-slate-100">
                 <span>Insira suas credenciais cadastradas</span>
-                <span className="font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-100">
-                  {usersCount} {usersCount === 1 ? 'login ativo' : 'logins ativos'}
-                </span>
               </div>
 
               {authError && (
@@ -708,12 +704,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
               <ShieldCheck className="h-3.5 w-3.5" />
               <span>Acesso Liberado</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-800 border border-sky-200">
-              <UserCheck className="h-3.5 w-3.5 text-sky-600" />
-              <span>
-                Usuário Conectado: <strong>@{currentUser?.username || companySettings?.adminUsername || 'admin'}</strong>
-              </span>
             </span>
           </div>
           <h2 className="text-2xl font-bold text-slate-900 mt-1">

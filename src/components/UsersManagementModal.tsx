@@ -10,7 +10,6 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-  UserCheck,
   User,
   Search,
   Lock,
@@ -357,12 +356,6 @@ export const UsersManagementModal: React.FC<UsersManagementModalProps> = ({
                                 <span className="text-xs font-bold text-slate-900">
                                   @{u.username}
                                 </span>
-                                {isCurrentSessionUser && (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200 flex items-center gap-1">
-                                    <UserCheck className="h-2.5 w-2.5" />
-                                    <span>Conectado agora</span>
-                                  </span>
-                                )}
                               </div>
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 mt-1">
                                 <span>Cadastrado em: {formatDate(u.createdAt)}</span>
