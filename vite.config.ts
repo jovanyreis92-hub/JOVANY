@@ -13,6 +13,8 @@ export default defineConfig(() => {
     },
     build: {
       outDir: 'dist',
+      emptyOutDir: true,
+      chunkSizeWarningLimit: 1500,
     },
     server: {
       host: '0.0.0.0',
