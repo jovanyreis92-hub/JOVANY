@@ -47,7 +47,7 @@ export interface CompanySettings {
   creatorSignature?: string;  // Assinatura/texto personalizado no rodapé
 }
 
-export type ActiveTab = 'register' | 'scanner' | 'admin';
+export type ActiveTab = 'register' | 'admin';
 
 export type UserRole = 'admin' | 'operator' | 'coordinator';
 

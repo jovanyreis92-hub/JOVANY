@@ -55,12 +55,12 @@ export default function App() {
       const eventIdParam = params.get('eventId');
       if (tabParam === 'register' || tabParam === 'admin') {
         setActiveTab(tabParam as ActiveTab);
+      } else if (tabParam === 'scanner') {
+        // Redireciona para o painel admin (onde fica o leitor QR da portaria)
+        setActiveTab('admin');
       } else if (eventIdParam) {
         // Link único de inscrição do evento
         setActiveTab('register');
-      } else if (tabParam === 'scanner') {
-        // Leitor QR agora fica dentro do painel administrativo
-        setActiveTab('admin');
       }
     }
 

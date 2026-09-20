@@ -1220,11 +1220,11 @@ export function toggleAttendance(id: string): { participant: Participant | null;
   return { participant: updatedParticipant, attended: newAttended };
 }
 
-export function markAttendanceByCode(codeOrMatricula: string): {
-  status: 'success' | 'already_checked' | 'not_found';
+export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
+  status: 'success' | 'already_checked' | 'not_found' | 'error';
   participant?: Participant;
   message: string;
-} {
+}> {
   const current = getStoredParticipants();
   const cleanInput = (codeOrMatricula || '').trim();
 
@@ -1254,25 +1254,29 @@ export function markAttendanceByCode(codeOrMatricula: string): {
     }
   }
 
-  const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normalize = (str: string) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const normInput = normalize(cleanInput);
 
-  const participant = current.find((p) => {
+  function normMatricula(val: string) {
+    return (val || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  let participant = current.find((p) => {
     if (targetId && p.id === targetId) return true;
     if (p.id === cleanInput) return true;
 
     if (targetMatricula) {
-      if (p.registrationNumber.toLowerCase() === targetMatricula.toLowerCase()) return true;
-      if (normalize(p.registrationNumber) === normalize(targetMatricula)) return true;
+      if (p.registrationNumber?.toLowerCase() === targetMatricula.toLowerCase()) return true;
+      if (normMatricula(p.registrationNumber) === normMatricula(targetMatricula)) return true;
     }
 
-    if (targetName && p.fullName.toLowerCase() === targetName.toLowerCase()) return true;
+    if (targetName && p.fullName?.toLowerCase() === targetName.toLowerCase()) return true;
 
-    if (p.registrationNumber.toLowerCase() === cleanInput.toLowerCase()) return true;
+    if (p.registrationNumber?.toLowerCase() === cleanInput.toLowerCase()) return true;
     if (normMatricula(p.registrationNumber) === normInput) return true;
 
-    const digitsOnly = cleanInput.replace(/\D/g, "");
-    const matriculaDigits = p.registrationNumber.replace(/\D/g, "");
+    const digitsOnly = cleanInput.replace(/\D/g, '');
+    const matriculaDigits = (p.registrationNumber || '').replace(/\D/g, '');
     if (digitsOnly && matriculaDigits && digitsOnly.length >= 3 && digitsOnly === matriculaDigits) {
       return true;
     }
@@ -1284,85 +1288,174 @@ export function markAttendanceByCode(codeOrMatricula: string): {
     return false;
   });
 
-  function normMatricula(val: string) {
-    return val.toLowerCase().replace(/[^a-z0-9]/g, '');
-  }
+  // Se o participante foi encontrado no cache local
+  if (participant) {
+    if (participant.attended) {
+      const formattedDate = participant.attendedAt
+        ? new Date(participant.attendedAt).toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+        : '';
+      return {
+        status: 'already_checked',
+        participant,
+        message: `Presença já confirmada anteriormente às ${formattedDate}!`,
+      };
+    }
 
-  if (!participant) {
-    // Tenta consultar o servidor se por acaso outro celular acabou de cadastrar e ainda não chegou
+    // Marca presença localmente imediatamente
+    const now = new Date().toISOString();
+    let confirmedParticipant: Participant = {
+      ...participant,
+      attended: true,
+      attendedAt: now,
+    };
+
+    const updated = current.map((p) => (p.id === participant!.id ? confirmedParticipant : p));
+    saveParticipants(updated);
+
+    // Dispara eventos locais imediatos
+    window.dispatchEvent(new CustomEvent('participant-updated', { detail: confirmedParticipant }));
+    window.dispatchEvent(
+      new CustomEvent('attendance-confirmed', {
+        detail: { participant: confirmedParticipant, timestamp: now },
+      })
+    );
+
+    // Notifica o servidor central e propaga via SSE para todos os celulares
+    const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+
     fetch('/api/participants/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ codeOrMatricula: cleanInput }),
-    })
-      .then(async (res) => {
-        if (res.ok) {
-          const data = await res.json();
-          if (data.participant) {
-            const fresh = getStoredParticipants();
-            const exists = fresh.some((p) => p.id === data.participant.id);
-            const merged = exists
-              ? fresh.map((p) => (p.id === data.participant.id ? data.participant : p))
-              : [data.participant, ...fresh];
-            saveParticipants(merged);
-          }
-        }
-      })
-      .catch(() => {});
-
-    const displayCode = cleanInput.length > 50 ? `${cleanInput.substring(0, 47)}...` : cleanInput;
-    return {
-      status: 'not_found',
-      message: `Participante não encontrado com o código: "${displayCode}". Verifique se o participante está cadastrado.`,
-    };
-  }
-
-  if (participant.attended) {
-    const formattedDate = participant.attendedAt
-      ? new Date(participant.attendedAt).toLocaleTimeString('pt-BR', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        })
-      : '';
-    return {
-      status: 'already_checked',
-      participant,
-      message: `Presença já confirmada anteriormente às ${formattedDate}!`,
-    };
-  }
-
-  // Marca presença no cache local
-  const now = new Date().toISOString();
-  let confirmedParticipant: Participant | undefined;
-
-  const updated = current.map((p) => {
-    if (p.id === participant.id) {
-      confirmedParticipant = {
-        ...p,
+      body: JSON.stringify({
+        id: confirmedParticipant.id,
+        codeOrMatricula: cleanInput,
         attended: true,
         attendedAt: now,
-      };
-      return confirmedParticipant;
+      }),
+    })
+      .then(() => setSyncStatus('connected'))
+      .catch(() => setSyncStatus('offline'));
+
+    // Propaga também para a nuvem cruzada se estiver em dev ou domínio alternativo
+    if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
+      fetch(`${targetCloudUrl}/api/participants/attendance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: confirmedParticipant.id,
+          codeOrMatricula: cleanInput,
+          attended: true,
+          attendedAt: now,
+        }),
+      }).catch(() => {});
     }
-    return p;
-  });
 
-  saveParticipants(updated);
+    return {
+      status: 'success',
+      participant: confirmedParticipant,
+      message: 'Presença confirmada com sucesso!',
+    };
+  }
 
-  // Sincroniza presença com o servidor central para atualizar portaria e admin
-  fetch('/api/participants/attendance', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ codeOrMatricula: cleanInput }),
-  })
-    .then(() => setSyncStatus('connected'))
-    .catch(() => setSyncStatus('offline'));
+  // Se NÃO foi encontrado localmente (ex: acabou de ser inscrito em outro celular em 4G/5G)
+  // Consulta o servidor central diretamente via API de presença
+  try {
+    const res = await fetch('/api/participants/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codeOrMatricula: cleanInput }),
+    });
 
+    if (res.ok) {
+      const data = await res.json();
+      if (data.participant) {
+        const fresh = getStoredParticipants();
+        const exists = fresh.some((p) => p.id === data.participant.id);
+        const merged = exists
+          ? fresh.map((p) => (p.id === data.participant.id ? data.participant : p))
+          : [data.participant, ...fresh];
+        saveParticipants(merged);
+
+        window.dispatchEvent(new CustomEvent('participant-updated', { detail: data.participant }));
+        if (data.participant.attended) {
+          window.dispatchEvent(
+            new CustomEvent('attendance-confirmed', {
+              detail: { participant: data.participant, timestamp: data.participant.attendedAt },
+            })
+          );
+        }
+
+        return {
+          status: data.status === 'already_checked' ? 'already_checked' : 'success',
+          participant: data.participant,
+          message: data.message || 'Presença confirmada com sucesso!',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao consultar presença no servidor local:', err);
+  }
+
+  // Tenta consultar a nuvem pública compartilhada caso estejamos no dev studio
+  if (typeof window !== 'undefined') {
+    const currentOrigin = window.location.origin;
+    const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+    if (targetCloudUrl && currentOrigin !== targetCloudUrl) {
+      try {
+        const cloudRes = await fetch(`${targetCloudUrl}/api/participants/attendance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ codeOrMatricula: cleanInput }),
+        });
+
+        if (cloudRes.ok) {
+          const cloudData = await cloudRes.json();
+          if (cloudData.participant) {
+            const fresh = getStoredParticipants();
+            const exists = fresh.some((p) => p.id === cloudData.participant.id);
+            const merged = exists
+              ? fresh.map((p) => (p.id === cloudData.participant.id ? cloudData.participant : p))
+              : [cloudData.participant, ...fresh];
+            saveParticipants(merged);
+
+            // Sincroniza também no servidor local
+            fetch('/api/participants/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ participants: [cloudData.participant] }),
+            }).catch(() => {});
+
+            window.dispatchEvent(new CustomEvent('participant-updated', { detail: cloudData.participant }));
+            if (cloudData.participant.attended) {
+              window.dispatchEvent(
+                new CustomEvent('attendance-confirmed', {
+                  detail: { participant: cloudData.participant, timestamp: cloudData.participant.attendedAt },
+                })
+              );
+            }
+
+            return {
+              status: cloudData.status === 'already_checked' ? 'already_checked' : 'success',
+              participant: cloudData.participant,
+              message: cloudData.message || 'Presença confirmada com sucesso via nuvem!',
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao consultar presença na nuvem compartilhada:', err);
+      }
+    }
+  }
+
+  const displayCode = cleanInput.length > 50 ? `${cleanInput.substring(0, 47)}...` : cleanInput;
   return {
-    status: 'success',
-    participant: confirmedParticipant,
-    message: 'Presença confirmada com sucesso!',
+    status: 'not_found',
+    message: `Participante não encontrado com o código: "${displayCode}". Verifique se o participante está cadastrado.`,
   };
 }
 
@@ -1446,11 +1539,14 @@ export async function syncWithServer(): Promise<void> {
             const cloudParts: Participant[] = await cloudRes.json();
             if (Array.isArray(cloudParts)) {
               const localParts = getStoredParticipants();
+              // 1. Novos participantes do cloud que não estão no local
               const newFromCloud = cloudParts.filter((cp) => !localParts.some((lp) => lp.id === cp.id));
+              let updatedLocal = [...localParts];
+              let localModified = false;
 
               if (newFromCloud.length > 0) {
-                const merged = [...newFromCloud, ...localParts];
-                saveParticipants(merged);
+                updatedLocal = [...newFromCloud, ...updatedLocal];
+                localModified = true;
                 fetch('/api/participants/batch', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -1462,6 +1558,7 @@ export async function syncWithServer(): Promise<void> {
                 });
               }
 
+              // 2. Participantes locais que faltam no cloud
               const missingInCloud = localParts.filter((lp) => !cloudParts.some((cp) => cp.id === lp.id));
               if (missingInCloud.length > 0) {
                 fetch(`${targetCloudUrl}/api/participants/batch`, {
@@ -1469,6 +1566,51 @@ export async function syncWithServer(): Promise<void> {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ participants: missingInCloud }),
                 }).catch(() => {});
+              }
+
+              // 3. Sincronização bidirecional de PRESENÇA (QR Code lido na nuvem ou no local)
+              cloudParts.forEach((cp) => {
+                const target = updatedLocal.find((lp) => lp.id === cp.id);
+                if (target) {
+                  // Se o cloud confirmou presença e o local ainda não tinha
+                  if (cp.attended && !target.attended) {
+                    target.attended = true;
+                    target.attendedAt = cp.attendedAt;
+                    localModified = true;
+
+                    // Atualiza o servidor local também
+                    fetch('/api/participants/attendance', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        id: cp.id,
+                        attended: true,
+                        attendedAt: cp.attendedAt,
+                      }),
+                    }).catch(() => {});
+
+                    window.dispatchEvent(
+                      new CustomEvent('attendance-confirmed', {
+                        detail: { participant: target, timestamp: target.attendedAt },
+                      })
+                    );
+                  } else if (target.attended && !cp.attended) {
+                    // Se o local confirmou presença e o cloud ainda não tinha, envia para a nuvem
+                    fetch(`${targetCloudUrl}/api/participants/attendance`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        id: target.id,
+                        attended: true,
+                        attendedAt: target.attendedAt,
+                      }),
+                    }).catch(() => {});
+                  }
+                }
+              });
+
+              if (localModified) {
+                saveParticipants(updatedLocal);
               }
             }
           }
@@ -1539,6 +1681,21 @@ export function initMultiDeviceSync(): () => void {
             const current = getStoredParticipants();
             const updated = current.map((p) => (p.id === data.id ? data : p));
             saveParticipants(updated);
+            window.dispatchEvent(new CustomEvent('participant-updated', { detail: data }));
+            if (data.attended) {
+              window.dispatchEvent(
+                new CustomEvent('attendance-confirmed', {
+                  detail: { participant: data, timestamp: data.attendedAt },
+                })
+              );
+            }
+          } else if (type === 'attendance_confirmed' && data) {
+            if (data.participant) {
+              const current = getStoredParticipants();
+              const updated = current.map((p) => (p.id === data.participant.id ? data.participant : p));
+              saveParticipants(updated);
+              window.dispatchEvent(new CustomEvent('attendance-confirmed', { detail: data }));
+            }
           } else if (type === 'participant_updated' && data) {
             const current = getStoredParticipants();
             const updated = current.map((p) => (p.id === data.id ? data : p));
@@ -1589,7 +1746,9 @@ export function initMultiDeviceSync(): () => void {
   connectSSE();
 
   // 3. Heartbeat Polling a cada 3 segundos com anti-cache para garantir atualização em celulares 4G/5G
+  let pollCycleCount = 0;
   const pollInterval = setInterval(() => {
+    pollCycleCount++;
     fetch(`/api/participants?_t=${Date.now()}`, {
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
@@ -1616,6 +1775,15 @@ export function initMultiDeviceSync(): () => void {
             saveParticipants(serverList);
           }
           setSyncStatus('connected');
+        }
+
+        // A cada 3 ciclos (~9 segundos), verifica a nuvem pública externa para sincronizar cadastros feitos via celular 4G/5G
+        if (pollCycleCount % 3 === 0 && typeof window !== 'undefined') {
+          const currentOrigin = window.location.origin;
+          const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+          if (targetCloudUrl && currentOrigin !== targetCloudUrl) {
+            syncWithServer();
+          }
         }
       })
       .catch(() => {

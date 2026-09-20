@@ -73,7 +73,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
     }
   };
 
-  const handleScanSuccess = useCallback((decodedText: string) => {
+  const handleScanSuccess = useCallback(async (decodedText: string) => {
     // Evita leituras duplicadas no mesmo segundo para o mesmo código
     const now = Date.now();
     if (
@@ -89,7 +89,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
     isProcessingRef.current = true;
 
     try {
-      const result = markAttendanceByCode(decodedText);
+      const result = await markAttendanceByCode(decodedText);
 
       if (result.status === 'success' && result.participant) {
         if (soundEnabled) playSuccessBeep();

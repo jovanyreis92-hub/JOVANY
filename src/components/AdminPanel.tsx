@@ -175,8 +175,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     };
 
+    const handleAttendanceConfirmed = (e: Event) => {
+      const customEvent = e as CustomEvent<{ participant: Participant; timestamp: string }>;
+      if (customEvent.detail?.participant) {
+        const p = customEvent.detail.participant;
+        showToast(
+          `Check-in QR recebido via celular/rede: ${p.fullName} (${p.registrationNumber}) - Presença confirmada!`,
+          'success'
+        );
+        onUpdateParticipants();
+      }
+    };
+
     window.addEventListener('participant-updated', handleParticipantUpdated);
-    return () => window.removeEventListener('participant-updated', handleParticipantUpdated);
+    window.addEventListener('attendance-confirmed', handleAttendanceConfirmed);
+    return () => {
+      window.removeEventListener('participant-updated', handleParticipantUpdated);
+      window.removeEventListener('attendance-confirmed', handleAttendanceConfirmed);
+    };
   }, [onUpdateParticipants]);
 
   const [isSyncing, setIsSyncing] = useState(false);

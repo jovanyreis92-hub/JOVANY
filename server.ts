@@ -256,6 +256,63 @@ async function startServer() {
     res.json({ success: true, participant: updated });
   });
 
+  // Helper para localizar participante a partir de código lido no QR, ID ou Matrícula
+  function findParticipantByCodeOrInput(input: any): any | null {
+    if (!input) return null;
+    const cleanInput = String(input).trim();
+    if (!cleanInput) return null;
+
+    let targetId: string | null = null;
+    let targetMatricula: string | null = null;
+    let targetName: string | null = null;
+
+    // Tenta extrair JSON caso o QR code contenha payload formatado
+    const jsonMatch = cleanInput.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.id) targetId = String(parsed.id).trim();
+        if (parsed.matricula) targetMatricula = String(parsed.matricula).trim();
+        if (parsed.registrationNumber) targetMatricula = String(parsed.registrationNumber).trim();
+        if (parsed.code) targetMatricula = String(parsed.code).trim();
+        if (parsed.nome) targetName = String(parsed.nome).trim();
+        if (parsed.name) targetName = String(parsed.name).trim();
+      } catch {
+        // ignora
+      }
+    }
+
+    const normalize = (str: string) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normInput = normalize(cleanInput);
+
+    return participants.find((p) => {
+      if (targetId && p.id === targetId) return true;
+      if (p.id === cleanInput) return true;
+
+      if (targetMatricula) {
+        if (p.registrationNumber?.toLowerCase() === targetMatricula.toLowerCase()) return true;
+        if (normalize(p.registrationNumber || '') === normalize(targetMatricula)) return true;
+      }
+
+      if (targetName && p.fullName?.toLowerCase() === targetName.toLowerCase()) return true;
+
+      if (p.registrationNumber?.toLowerCase() === cleanInput.toLowerCase()) return true;
+      if (normalize(p.registrationNumber || '') === normInput) return true;
+
+      const digitsOnly = cleanInput.replace(/\D/g, '');
+      const matriculaDigits = (p.registrationNumber || '').replace(/\D/g, '');
+      if (digitsOnly && matriculaDigits && digitsOnly.length >= 3 && digitsOnly === matriculaDigits) {
+        return true;
+      }
+
+      if (cleanInput.includes(p.registrationNumber) || cleanInput.includes(p.id)) {
+        return true;
+      }
+
+      return false;
+    });
+  }
+
   // 6. Alternar presença de participante (toggle)
   app.post('/api/participants/:id/toggle', (req, res) => {
     const { id } = req.params;
@@ -269,25 +326,71 @@ async function startServer() {
 
     writeJsonFile(PARTICIPANTS_FILE, participants);
     broadcastSSE('attendance_updated', participant);
+    if (participant.attended) {
+      broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt });
+    }
 
     res.json({ success: true, participant });
   });
 
-  // 7. Atualizar presença com valor explícito
+  // 7. Atualizar presença / Leitura de QR Code vindo de QUALQUER rede móvel (4G, 5G, Wi-Fi)
   app.post('/api/participants/attendance', (req, res) => {
-    const { id, attended, attendedAt } = req.body;
-    const participant = participants.find((p) => p.id === id);
-    if (!participant) {
-      return res.status(404).json({ error: 'Participante não encontrado.' });
+    const { id, codeOrMatricula, matricula, registrationNumber, attended, attendedAt } = req.body;
+    
+    // Busca participante por ID direto ou por código de QR / Matrícula
+    let participant: any = null;
+    if (id) {
+      participant = participants.find((p) => p.id === id);
+    }
+    if (!participant && (codeOrMatricula || matricula || registrationNumber)) {
+      participant = findParticipantByCodeOrInput(codeOrMatricula || matricula || registrationNumber);
     }
 
-    participant.attended = Boolean(attended);
-    participant.attendedAt = attended ? (attendedAt || new Date().toISOString()) : null;
+    if (!participant) {
+      return res.status(404).json({ 
+        success: false, 
+        status: 'not_found', 
+        error: 'Participante não encontrado no sistema.',
+        message: 'Código de participante ou matrícula não encontrado.' 
+      });
+    }
+
+    // Se a presença já estava confirmada anteriormente e não foi enviado valor booleano explícito
+    if (attended === undefined && participant.attended) {
+      const formattedDate = participant.attendedAt
+        ? new Date(participant.attendedAt).toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+        : '';
+      return res.json({
+        success: true,
+        status: 'already_checked',
+        participant,
+        message: `Presença já confirmada anteriormente às ${formattedDate}!`,
+      });
+    }
+
+    // Atualiza status de presença
+    participant.attended = attended !== undefined ? Boolean(attended) : true;
+    participant.attendedAt = participant.attended ? (attendedAt || new Date().toISOString()) : null;
 
     writeJsonFile(PARTICIPANTS_FILE, participants);
     broadcastSSE('attendance_updated', participant);
+    if (participant.attended) {
+      broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt });
+      console.log(
+        `[CHECK-IN QR RECEBIDO VIA REDE MÓVEL] Presença confirmada: "${participant.fullName}" (Matrícula: ${participant.registrationNumber})`
+      );
+    }
 
-    res.json({ success: true, participant });
+    res.json({ 
+      success: true, 
+      status: 'success', 
+      participant, 
+      message: participant.attended ? 'Presença confirmada com sucesso!' : 'Presença desmarcada.' 
+    });
   });
 
   // 8. Excluir participante

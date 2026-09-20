@@ -97,6 +97,7 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
 
   const handleNativeShare = async () => {
     const text = `Acesse o formulário de cadastro e credenciamento para o evento "${companySettings.eventName}": ${urlInfo.url}`;
+
     if (navigator.share) {
       try {
         await navigator.share({
@@ -196,14 +197,14 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
           <div className="flex flex-col items-center justify-center p-4 sm:p-5 bg-gradient-to-b from-sky-50/40 to-slate-50 border border-sky-100/80 rounded-2xl text-center">
             <p className="text-xs font-semibold text-slate-700 mb-3 flex items-center gap-1.5">
               <QrCode className="h-4 w-4 text-sky-600" />
-              Aponte a câmera do celular para abrir o formulário:
+              Aponte a câmera do celular para abrir o formulário de cadastro:
             </p>
 
             <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/80 inline-block">
               {qrDataUrl ? (
                 <img
                   src={qrDataUrl}
-                  alt="QR Code para Inscrição em Qualquer Rede"
+                  alt="QR Code para Inscrição"
                   className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
                 />
               ) : (
@@ -214,7 +215,7 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
             </div>
 
             <p className="text-[11px] text-slate-500 mt-3 max-w-xs">
-              Abre instantaneamente em navegadores mobile (Chrome, Safari, Firefox), sem necessidade de instalar aplicativos.
+              Abre instantaneamente em navegadores mobile (Chrome, Safari, Firefox) via 4G, 5G ou Wi-Fi.
             </p>
           </div>
 
@@ -223,7 +224,7 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                 <Link className="h-3.5 w-3.5 text-sky-600" />
-                Link Direto para Envio:
+                Link Direto para Inscrição:
               </label>
 
               <button
