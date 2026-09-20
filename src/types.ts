@@ -42,6 +42,7 @@ export interface CompanySettings {
   adminPassword?: string;
   fontFamily?: LayoutFontFamily;
   layoutScale?: LayoutScaleSize;
+  primaryColor?: string;      // Cor primária do sistema em hex (ex: #0284c7)
   publicAppUrl?: string;
   creatorName?: string;       // Nome do criador
   creatorSignature?: string;  // Assinatura/texto personalizado no rodapé

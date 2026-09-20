@@ -17,6 +17,7 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   adminPassword: '1234',
   fontFamily: 'inter',
   layoutScale: 'normal',
+  primaryColor: '#0284c7',
   publicAppUrl: 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app',
   creatorName: 'Jovany Reis',
   creatorSignature: 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições',

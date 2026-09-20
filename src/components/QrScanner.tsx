@@ -13,7 +13,12 @@ import {
   VolumeX,
   FlipHorizontal,
   Info,
-  RefreshCw
+  RefreshCw,
+  Zap,
+  Sparkles,
+  Clock,
+  Check,
+  CheckCheck
 } from 'lucide-react';
 import { Participant, ScanResult } from '../types';
 import { markAttendanceByCode } from '../utils/storage';
@@ -39,6 +44,28 @@ export const QrScanner: React.FC<QrScannerProps> = ({
   const [availableCameras, setAvailableCameras] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
 
+  // Estados exclusivos para ALTO CHECK-IN POR QR (Modo Contínuo de Recepção Rápida)
+  const [autoCheckinEnabled, setAutoCheckinEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('auto_checkin_enabled');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [sessionCheckinCount, setSessionCheckinCount] = useState<number>(0);
+  const [flashStatus, setFlashStatus] = useState<'success' | 'already_checked' | 'not_found' | 'error' | null>(null);
+  const [autoResetCountdown, setAutoResetCountdown] = useState<number | null>(null);
+  const [recentCheckins, setRecentCheckins] = useState<Array<{
+    id: string;
+    fullName: string;
+    registrationNumber: string;
+    company: string;
+    time: string;
+    status: 'success' | 'already_checked';
+  }>>([]);
+
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isProcessingRef = useRef<boolean>(false);
@@ -73,6 +100,39 @@ export const QrScanner: React.FC<QrScannerProps> = ({
     }
   };
 
+  const clearAutoReset = useCallback(() => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setAutoResetCountdown(null);
+  }, []);
+
+  const triggerAutoReset = useCallback((seconds: number = 3) => {
+    clearAutoReset();
+    setAutoResetCountdown(seconds);
+    let remaining = seconds;
+    countdownIntervalRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearAutoReset();
+        setScanResult(null);
+      } else {
+        setAutoResetCountdown(remaining);
+      }
+    }, 1000);
+  }, [clearAutoReset]);
+
+  const toggleAutoCheckin = () => {
+    setAutoCheckinEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('auto_checkin_enabled', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const handleScanSuccess = useCallback(async (decodedText: string) => {
     // Evita leituras duplicadas no mesmo segundo para o mesmo código
     const now = Date.now();
@@ -90,31 +150,69 @@ export const QrScanner: React.FC<QrScannerProps> = ({
 
     try {
       const result = await markAttendanceByCode(decodedText);
+      const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      // Efeito luminoso de confirmação na moldura da câmera
+      setFlashStatus(result.status as any);
+      setTimeout(() => {
+        setFlashStatus(null);
+      }, 800);
 
       if (result.status === 'success' && result.participant) {
         if (soundEnabled) playSuccessBeep();
+        if (typeof window !== 'undefined' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
+          try { navigator.vibrate([120, 60, 120]); } catch {}
+        }
+
+        setSessionCheckinCount((prev) => prev + 1);
+        setRecentCheckins((prev) => [
+          {
+            id: result.participant!.id,
+            fullName: result.participant!.fullName,
+            registrationNumber: result.participant!.registrationNumber,
+            company: result.participant!.company,
+            time: timeStr,
+            status: 'success',
+          },
+          ...prev.slice(0, 4),
+        ]);
+
         setScanResult({
           type: 'success',
           message: result.message,
           participant: result.participant,
-          timestamp: new Date().toLocaleTimeString('pt-BR'),
+          timestamp: timeStr,
         });
         onAttendanceMarked(result.participant);
+
+        // Se Auto Check-in estiver ativo, programa o auto-reset para o próximo crachá
+        if (autoCheckinEnabled) {
+          triggerAutoReset(3);
+        }
       } else if (result.status === 'already_checked' && result.participant) {
         if (soundEnabled) playWarningBeep();
+        if (typeof window !== 'undefined' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
+          try { navigator.vibrate([200]); } catch {}
+        }
         setScanResult({
           type: 'already_checked',
           message: result.message,
           participant: result.participant,
-          timestamp: new Date().toLocaleTimeString('pt-BR'),
+          timestamp: timeStr,
         });
+        if (autoCheckinEnabled) {
+          triggerAutoReset(3);
+        }
       } else {
         if (soundEnabled) playErrorBeep();
         setScanResult({
           type: 'not_found',
           message: result.message,
-          timestamp: new Date().toLocaleTimeString('pt-BR'),
+          timestamp: timeStr,
         });
+        if (autoCheckinEnabled) {
+          triggerAutoReset(3);
+        }
       }
     } catch (err) {
       console.error('Erro ao processar QR:', err);
@@ -124,12 +222,15 @@ export const QrScanner: React.FC<QrScannerProps> = ({
         message: 'Falha ao decodificar dados do código lido.',
         timestamp: new Date().toLocaleTimeString('pt-BR'),
       });
+      if (autoCheckinEnabled) {
+        triggerAutoReset(3);
+      }
     } finally {
       setTimeout(() => {
         isProcessingRef.current = false;
       }, 1200);
     }
-  }, [soundEnabled, onAttendanceMarked]);
+  }, [soundEnabled, onAttendanceMarked, autoCheckinEnabled, triggerAutoReset]);
 
   const stopScanner = async () => {
     try {
@@ -395,6 +496,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      clearAutoReset();
       safelyStopMediaTracks();
       if (scannerRef.current) {
         const instance = scannerRef.current;
@@ -409,7 +511,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
         }
       }
     };
-  }, []);
+  }, [clearAutoReset]);
 
   // Se a aba do scanner for desativada (usuário navegou para Cadastro ou Admin), desliga a câmera com segurança
   useEffect(() => {
@@ -438,22 +540,48 @@ export const QrScanner: React.FC<QrScannerProps> = ({
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         {/* Topo do Leitor */}
         <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 sm:p-7">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-semibold tracking-wide border border-emerald-400/20 mb-2">
-                <Camera className="h-3.5 w-3.5" />
-                <span>Portaria & Recepção</span>
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-semibold tracking-wide border border-emerald-400/20">
+                  <Camera className="h-3.5 w-3.5" />
+                  <span>Portaria & Recepção</span>
+                </div>
+                {sessionCheckinCount > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold border border-emerald-400/30">
+                    <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>{sessionCheckinCount} {sessionCheckinCount === 1 ? 'check-in' : 'check-ins'} nesta sessão</span>
+                  </div>
+                )}
               </div>
-              <h2 className="text-2xl font-bold text-white">
-                Leitor de Presença QR
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                <span>Leitor de Presença QR</span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 font-semibold uppercase tracking-wider">
+                  Auto Check-in
+                </span>
               </h2>
               <p className="text-slate-300 text-sm mt-0.5">
-                Aponte a câmera para o QR Code do crachá do participante para confirmar presença instantaneamente.
+                Validação e confirmação de presença instantânea contínua com auto-reset para o próximo crachá.
               </p>
             </div>
 
-            {/* Controles de Som e Câmera */}
-            <div className="flex items-center gap-2 self-start sm:self-center">
+            {/* Controles de Som, Auto Check-in e Câmera */}
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+              <button
+                id="btn-toggle-auto-checkin"
+                type="button"
+                onClick={toggleAutoCheckin}
+                className={`p-2 sm:px-3 sm:py-2 rounded-xl text-xs font-medium border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  autoCheckinEnabled
+                    ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/40 shadow-xs'
+                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
+                }`}
+                title={autoCheckinEnabled ? 'Auto Check-in ativo: credenciamento contínuo sem toques manuais' : 'Clique para reativar o Auto Check-in contínuo'}
+              >
+                <Zap className={`h-4 w-4 ${autoCheckinEnabled ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-slate-400'}`} />
+                <span className="font-semibold">{autoCheckinEnabled ? 'Auto Check-in Ativo' : 'Auto Check-in Pausado'}</span>
+              </button>
+
               <button
                 id="btn-toggle-sound"
                 type="button"
@@ -489,8 +617,18 @@ export const QrScanner: React.FC<QrScannerProps> = ({
 
         {/* Área Central de Leitura */}
         <div className="p-6">
-          {/* Container do Vídeo da Câmera */}
-          <div className="max-w-md mx-auto relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-inner min-h-[320px] flex items-center justify-center">
+          {/* Container do Vídeo da Câmera com feedback luminoso dinâmico */}
+          <div
+            className={`max-w-md mx-auto relative rounded-2xl overflow-hidden bg-slate-950 border-2 transition-all duration-300 min-h-[320px] flex items-center justify-center ${
+              flashStatus === 'success'
+                ? 'border-emerald-400 ring-4 ring-emerald-400/80 shadow-2xl shadow-emerald-500/40'
+                : flashStatus === 'already_checked'
+                ? 'border-amber-400 ring-4 ring-amber-400/80 shadow-2xl shadow-amber-500/40'
+                : flashStatus === 'not_found' || flashStatus === 'error'
+                ? 'border-rose-400 ring-4 ring-rose-400/80 shadow-2xl shadow-rose-500/40'
+                : 'border-slate-800 shadow-inner'
+            }`}
+          >
             
             {/* CONTAINER EXCLUSIVO DO HTML5-QRCODE - sem filhos do React para estabilidade absoluta */}
             <div
@@ -508,7 +646,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                   Câmera Pronta para Leitura
                 </p>
                 <p className="text-xs text-slate-400 max-w-xs mb-5">
-                  Clique no botão abaixo para ativar a câmera do dispositivo e iniciar o escaneamento dos crachás.
+                  Clique no botão abaixo para ativar a câmera e começar o auto check-in instantâneo dos participantes.
                 </p>
                 <button
                   id="btn-start-camera"
@@ -517,7 +655,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                   className="flex items-center gap-2 py-3 px-6 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-semibold text-sm transition-all shadow-md shadow-emerald-600/25 cursor-pointer"
                 >
                   <Camera className="h-4 w-4" />
-                  <span>Ativar Leitor de QR Code</span>
+                  <span>Ativar Auto Check-in QR</span>
                 </button>
               </div>
             )}
@@ -525,8 +663,9 @@ export const QrScanner: React.FC<QrScannerProps> = ({
             {/* Mira visual de enquadramento quando ativo */}
             {isScanning && (
               <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-between p-5">
-                <div className="bg-slate-900/85 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-xs border border-white/20 animate-pulse font-medium shadow-sm">
-                  Aponte para o QR Code do Crachá
+                <div className="bg-slate-900/90 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-xs border border-white/20 font-medium shadow-sm flex items-center gap-1.5">
+                  <Zap className={`h-3.5 w-3.5 ${autoCheckinEnabled ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-slate-400'}`} />
+                  <span>{autoCheckinEnabled ? 'Auto Check-in Ativo • Aponte o QR Code' : 'Aponte para o QR Code do Crachá'}</span>
                 </div>
 
                 {/* Retângulo Guia de Leitura com cantoneiras de mira */}
@@ -594,7 +733,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
             </div>
           )}
 
-          {/* Feedback Visual da Última Leitura */}
+          {/* Feedback Visual da Leitura com Auto-Reset para Auto Check-in */}
           {scanResult && (
             <div
               id="scan-result-card"
@@ -627,8 +766,13 @@ export const QrScanner: React.FC<QrScannerProps> = ({
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider">
-                      {scanResult.type === 'success' && 'PRESENÇA CONFIRMADA!'}
+                    <span className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                      {scanResult.type === 'success' && (
+                        <>
+                          <Zap className="h-3.5 w-3.5 text-emerald-600 fill-emerald-600" />
+                          <span>AUTO CHECK-IN: PRESENÇA CONFIRMADA!</span>
+                        </>
+                      )}
                       {scanResult.type === 'already_checked' && 'ATENÇÃO - JÁ REGISTRADO'}
                       {scanResult.type === 'not_found' && 'CÓDIGO NÃO ENCONTRADO'}
                       {scanResult.type === 'error' && 'ERRO DE LEITURA'}
@@ -665,7 +809,63 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                       </div>
                     </div>
                   )}
+
+                  {/* Indicador de Auto-Reset para próximo participante no Auto Check-in */}
+                  {autoCheckinEnabled && autoResetCountdown !== null && (
+                    <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-black/10 text-xs">
+                      <div className="flex items-center gap-1.5 font-medium opacity-90">
+                        <Clock className="h-3.5 w-3.5 animate-spin" />
+                        <span>Próximo crachá pronto em <strong>{autoResetCountdown}s</strong>...</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearAutoReset();
+                          setScanResult(null);
+                        }}
+                        className="px-2.5 py-1 rounded-md bg-black/10 hover:bg-black/20 text-current text-[11px] font-semibold transition-colors cursor-pointer"
+                      >
+                        Pronto Agora
+                      </button>
+                    </div>
+                  )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Histórico Recente de Auto Check-ins da Sessão */}
+          {recentCheckins.length > 0 && (
+            <div className="mt-6 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                  <CheckCheck className="h-4 w-4 text-emerald-600" />
+                  <span>Últimos Check-ins da Sessão ({recentCheckins.length})</span>
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  {sessionCheckinCount} total
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {recentCheckins.map((item, idx) => (
+                  <div
+                    key={`${item.id}-${idx}`}
+                    className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="h-6 w-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                        <Check className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{item.fullName}</p>
+                        <p className="text-[11px] text-slate-500 font-mono">Matrícula: {item.registrationNumber} • {item.company}</p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-mono text-emerald-700 font-medium shrink-0 ml-2">
+                      {item.time}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

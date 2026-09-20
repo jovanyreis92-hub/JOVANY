@@ -1,5 +1,85 @@
 @import "tailwindcss";
 
+:root {
+  --primary-color: #0284c7;
+  --primary-hover: #0369a1;
+  --primary-active: #075985;
+  --primary-light: #e0f2fe;
+  --primary-soft: #f0f9ff;
+  --primary-border: #7dd3fc;
+  --primary-text: #0369a1;
+  --primary-contrast: #ffffff;
+  --primary-ring: rgba(2, 132, 199, 0.35);
+  --primary-shadow: 0 4px 14px 0 rgba(2, 132, 199, 0.22);
+}
+
+/* Classes Dinâmicas de Cor Primária */
+.bg-primary-theme {
+  background-color: var(--primary-color) !important;
+}
+.hover\:bg-primary-theme-hover:hover {
+  background-color: var(--primary-hover) !important;
+}
+.active\:bg-primary-theme-active:active {
+  background-color: var(--primary-active) !important;
+}
+
+.text-primary-theme {
+  color: var(--primary-color) !important;
+}
+.text-primary-theme-contrast {
+  color: var(--primary-contrast) !important;
+}
+.text-primary-theme-text {
+  color: var(--primary-text) !important;
+}
+
+.border-primary-theme {
+  border-color: var(--primary-color) !important;
+}
+.border-primary-theme-light {
+  border-color: var(--primary-border) !important;
+}
+
+.bg-primary-theme-soft {
+  background-color: var(--primary-soft) !important;
+}
+.bg-primary-theme-light {
+  background-color: var(--primary-light) !important;
+}
+
+.ring-primary-theme {
+  --tw-ring-color: var(--primary-ring) !important;
+}
+
+.shadow-primary-theme {
+  box-shadow: var(--primary-shadow) !important;
+}
+
+/* Botão de Ação Primária Universal */
+.btn-primary-action {
+  background-color: var(--primary-color) !important;
+  color: var(--primary-contrast) !important;
+  box-shadow: 0 2px 10px -1px var(--primary-shadow, rgba(0, 0, 0, 0.1));
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btn-primary-action:hover {
+  background-color: var(--primary-hover) !important;
+  filter: brightness(0.96);
+  box-shadow: 0 4px 16px 0 var(--primary-shadow, rgba(0, 0, 0, 0.15));
+}
+.btn-primary-action:active {
+  background-color: var(--primary-active) !important;
+  transform: scale(0.99);
+}
+
+/* Tag / Chip / Badge Primário Dinâmico */
+.badge-primary-theme {
+  background-color: var(--primary-light) !important;
+  color: var(--primary-text) !important;
+  border: 1px solid var(--primary-border) !important;
+}
+
 html {
   transition: font-size 0.2s ease;
 }

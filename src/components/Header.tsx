@@ -82,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => setActiveTab('register')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
                   activeTab === 'register'
-                    ? 'bg-sky-600 text-white shadow-xs'
+                    ? 'bg-primary-theme text-primary-theme-contrast shadow-xs'
                     : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
                 }`}
               >
@@ -96,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => setActiveTab('admin')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
                   activeTab === 'admin'
-                    ? 'bg-sky-600 text-white shadow-xs'
+                    ? 'bg-primary-theme text-primary-theme-contrast shadow-xs'
                     : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
                 }`}
               >
@@ -116,7 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 hover:text-white font-semibold text-xs border border-slate-700 transition-all shadow-xs shrink-0 cursor-pointer"
               title="Abrir QR Code e link para compartilhar formulário de inscrição"
             >
-              <Share2 className="h-4 w-4 text-sky-400" />
+              <Share2 className="h-4 w-4 text-primary-theme" />
               <span className="hidden sm:inline">Compartilhar</span>
             </button>
 

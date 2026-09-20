@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { ActiveTab, Participant, CompanySettings } from './types';
 import { 
   getStoredParticipants, 
@@ -42,10 +43,14 @@ export default function App() {
     setCompanySettings(getCompanySettings());
   };
 
-  // Aplica fonte e escala do layout
+  // Aplica fonte, escala do layout e cor primária dinâmica
   useEffect(() => {
-    applyLayoutPreferences(companySettings.fontFamily, companySettings.layoutScale);
-  }, [companySettings.fontFamily, companySettings.layoutScale]);
+    applyLayoutPreferences(
+      companySettings.fontFamily,
+      companySettings.layoutScale,
+      companySettings.primaryColor
+    );
+  }, [companySettings.fontFamily, companySettings.layoutScale, companySettings.primaryColor]);
 
   useEffect(() => {
     // Detecta parâmetro de aba na URL (?tab=register / admin / eventId)
@@ -108,7 +113,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans antialiased selection:bg-sky-500 selection:text-white">
+    <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans antialiased selection:bg-primary-theme selection:text-white">
       {/* Barra de Navegação Superior com Logomarca da Empresa */}
       <Header
         activeTab={activeTab}
@@ -120,33 +125,49 @@ export default function App() {
         onLogout={handleHeaderLogout}
       />
 
-      {/* Conteúdo Principal conforme a aba ativa */}
-      <main className="flex-1 pb-16 sm:pb-8">
-        <div className={activeTab === 'register' ? 'block' : 'hidden'}>
-          <RegistrationForm
-            onParticipantAdded={() => {
-              reloadParticipants();
-            }}
-            companySettings={companySettings}
-            onOpenMobileShare={() => setIsMobileShareOpen(true)}
-            isAdminAuthenticated={isAdminAuthenticated}
-            setIsAdminAuthenticated={handleSetAdminAuth}
-            onNavigateToAdmin={() => setActiveTab('admin')}
-          />
-        </div>
-
-        <div className={activeTab === 'admin' ? 'block' : 'hidden'}>
-          <AdminPanel
-            participants={participants}
-            isAuthenticated={isAdminAuthenticated}
-            setIsAuthenticated={handleSetAdminAuth}
-            onNavigateToRegister={() => setActiveTab('register')}
-            onUpdateParticipants={reloadParticipants}
-            companySettings={companySettings}
-            onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
-            onOpenMobileShare={() => setIsMobileShareOpen(true)}
-          />
-        </div>
+      {/* Conteúdo Principal com Animação de Transição Fluida */}
+      <main className="flex-1 pb-16 sm:pb-8 overflow-x-hidden">
+        <AnimatePresence mode="wait">
+          {activeTab === 'register' ? (
+            <motion.div
+              key="route-tab-register"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <RegistrationForm
+                onParticipantAdded={() => {
+                  reloadParticipants();
+                }}
+                companySettings={companySettings}
+                onOpenMobileShare={() => setIsMobileShareOpen(true)}
+                isAdminAuthenticated={isAdminAuthenticated}
+                setIsAdminAuthenticated={handleSetAdminAuth}
+                onNavigateToAdmin={() => setActiveTab('admin')}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="route-tab-admin"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              <AdminPanel
+                participants={participants}
+                isAuthenticated={isAdminAuthenticated}
+                setIsAuthenticated={handleSetAdminAuth}
+                onNavigateToRegister={() => setActiveTab('register')}
+                onUpdateParticipants={reloadParticipants}
+                companySettings={companySettings}
+                onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
+                onOpenMobileShare={() => setIsMobileShareOpen(true)}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Barra de Navegação Inferior Fixa para Dispositivos Móveis */}
@@ -156,7 +177,7 @@ export default function App() {
           type="button"
           onClick={() => setActiveTab('register')}
           className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
-            activeTab === 'register' ? 'text-sky-600 font-bold' : 'text-slate-500'
+            activeTab === 'register' ? 'text-primary-theme font-bold' : 'text-slate-500'
           }`}
         >
           <UserPlus className="h-5 w-5" />
@@ -168,7 +189,7 @@ export default function App() {
           type="button"
           onClick={() => setActiveTab('admin')}
           className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
-            activeTab === 'admin' ? 'text-sky-600 font-bold' : 'text-slate-500'
+            activeTab === 'admin' ? 'text-primary-theme font-bold' : 'text-slate-500'
           }`}
         >
           <div className="relative">

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShieldCheck, 
   Lock, 
@@ -22,13 +23,11 @@ import {
   EyeOff,
   ImageIcon,
   User,
-  Share2,
   Camera,
   Palette,
   Calendar,
   Filter,
   Pencil,
-  LogOut,
   Sparkles
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem, UserAccount } from '../types';
@@ -47,12 +46,19 @@ import {
   getCurrentUser
 } from '../utils/storage';
 import { exportToExcel, exportToPDF } from '../utils/export';
+import {
+  getNotificationPermission,
+  isWebNotificationsEnabled,
+  sendAttendanceNotification
+} from '../utils/notifications';
 import { QrBadgeModal } from './QrBadgeModal';
 import { AdminCredentialsModal } from './AdminCredentialsModal';
 import { UsersManagementModal } from './UsersManagementModal';
 import { QrScanner } from './QrScanner';
 import { EventManager } from './EventManager';
 import { EditParticipantModal } from './EditParticipantModal';
+import { AttendanceChart } from './AttendanceChart';
+import { RecentAttendanceLog } from './RecentAttendanceLog';
 
 interface AdminPanelProps {
   participants: Participant[];
@@ -130,6 +136,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Notificação temporária de ação
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
 
+  // Notificações no Navegador (Web Notifications API)
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => getNotificationPermission());
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => isWebNotificationsEnabled());
+
   // Sub-Aba do Painel Admin (Participantes vs Leitor QR vs Gestão de Eventos)
   const [adminSubTab, setAdminSubTab] = useState<'participants' | 'scanner' | 'events'>('participants');
 
@@ -149,6 +159,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     window.addEventListener('events-updated', handleEventsUpdated);
     return () => window.removeEventListener('events-updated', handleEventsUpdated);
+  }, []);
+
+  // Sincroniza estado da Web Notifications API com preferências e permissões do navegador
+  useEffect(() => {
+    const handlePermissionChange = () => {
+      setNotificationPermission(getNotificationPermission());
+      setNotificationsEnabled(isWebNotificationsEnabled());
+    };
+
+    window.addEventListener('web-notifications-permission-changed', handlePermissionChange);
+    window.addEventListener('web-notifications-setting-changed', handlePermissionChange);
+
+    return () => {
+      window.removeEventListener('web-notifications-permission-changed', handlePermissionChange);
+      window.removeEventListener('web-notifications-setting-changed', handlePermissionChange);
+    };
   }, []);
 
   // Escuta novos cadastros recebidos em tempo real de celulares em outras redes (4G/5G/Wi-Fi)
@@ -180,10 +206,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (customEvent.detail?.participant) {
         const p = customEvent.detail.participant;
         showToast(
-          `Check-in QR recebido via celular/rede: ${p.fullName} (${p.registrationNumber}) - Presença confirmada!`,
+          `Check-in QR recebido: ${p.fullName} (${p.registrationNumber}) - Presença confirmada!`,
           'success'
         );
         onUpdateParticipants();
+
+        // Alerta nativo via Web Notifications API para o administrador
+        if (notificationsEnabled && notificationPermission === 'granted') {
+          sendAttendanceNotification(p, companySettings?.eventName, {
+            logoUrl: companySettings?.logoUrl || undefined,
+          });
+        }
       }
     };
 
@@ -193,7 +226,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       window.removeEventListener('participant-updated', handleParticipantUpdated);
       window.removeEventListener('attendance-confirmed', handleAttendanceConfirmed);
     };
-  }, [onUpdateParticipants]);
+  }, [onUpdateParticipants, notificationsEnabled, notificationPermission, companySettings?.eventName, companySettings?.logoUrl]);
 
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -392,6 +425,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const absentCount = total - presentCount;
   const attendanceRate = total > 0 ? ((presentCount / total) * 100).toFixed(1) : '0';
 
+  // Objeto do evento selecionado no filtro
+  const selectedEventObj = useMemo(() => {
+    return eventFilter !== 'all' ? eventsList.find((e) => e.id === eventFilter) : undefined;
+  }, [eventFilter, eventsList]);
+
+  // Participantes no escopo do evento selecionado (mantendo a proporção real mesmo se houver filtro de status na tabela)
+  const chartScopeParticipants = useMemo(() => {
+    return participants.filter((p) => {
+      if (eventFilter === 'all') return true;
+      return p.eventId === eventFilter || (!p.eventId && selectedEventObj?.active);
+    });
+  }, [participants, eventFilter, selectedEventObj]);
+
+  const chartTotal = chartScopeParticipants.length;
+  const chartPresentCount = chartScopeParticipants.filter((p) => p.attended).length;
+  const chartAbsentCount = chartTotal - chartPresentCount;
+
   // Determina nome de arquivo para exportação
   const getExportBaseName = () => {
     if (eventFilter !== 'all') {
@@ -449,7 +499,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 }}
                 className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   authMode === 'login'
-                    ? 'bg-sky-600 text-white shadow-xs'
+                    ? 'bg-primary-theme text-primary-theme-contrast shadow-xs'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -463,7 +513,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 }}
                 className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   authMode === 'register'
-                    ? 'bg-sky-600 text-white shadow-xs'
+                    ? 'bg-primary-theme text-primary-theme-contrast shadow-xs'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -675,7 +725,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <button
                 id="btn-admin-register-submit"
                 type="submit"
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl font-semibold text-xs transition-colors shadow-sm cursor-pointer mt-1"
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 btn-primary-action rounded-xl font-semibold text-xs transition-colors shadow-sm cursor-pointer mt-1"
               >
                 <UserPlus className="h-4 w-4" />
                 <span>Cadastrar Novo Login e Acessar</span>
@@ -730,7 +780,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </p>
         </div>
 
-        {/* Botões de Ação Global (Sincronizar, Usuários/Logins, Compartilhar, Logomarca, Excel, PDF, Sair) */}
+        {/* Botões de Ação Global (Sincronizar, Usuários/Logins, Logomarca, Excel, PDF) */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             id="btn-admin-sync-now"
@@ -755,19 +805,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <span>Usuários & Logins ({usersCount})</span>
           </button>
 
-          {onOpenMobileShare && (
-            <button
-              id="btn-admin-mobile-share"
-              type="button"
-              onClick={onOpenMobileShare}
-              className="flex items-center gap-1.5 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-              title="Exibir QR Code e link para compartilhamento da página de inscrição"
-            >
-              <Share2 className="h-4 w-4 text-slate-600" />
-              <span>Compartilhar Link</span>
-            </button>
-          )}
-
           {onOpenCompanySettings && (
             <button
               id="btn-admin-customize-company"
@@ -780,20 +817,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <span>Layout & Logomarca</span>
             </button>
           )}
-
-          <button
-            id="btn-admin-logout"
-            type="button"
-            onClick={() => {
-              setIsAuthenticated(false);
-              showToast('Sessão encerrada com sucesso.', 'info');
-            }}
-            className="flex items-center gap-1.5 py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-            title="Sair do painel para alternar de usuário ou bloquear a tela"
-          >
-            <LogOut className="h-4 w-4 text-rose-600" />
-            <span>Sair</span>
-          </button>
 
           <button
             id="btn-export-excel"
@@ -828,7 +851,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             onClick={() => setAdminSubTab('participants')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               adminSubTab === 'participants'
-                ? 'bg-sky-600 text-white shadow-xs'
+                ? 'bg-primary-theme text-primary-theme-contrast shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:text-slate-900 hover:bg-slate-200'
             }`}
           >
@@ -836,7 +859,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <span>Lista de Participantes</span>
             <span
               className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
-                adminSubTab === 'participants' ? 'bg-sky-700 text-white' : 'bg-slate-200 text-slate-700'
+                adminSubTab === 'participants' ? 'bg-primary-theme-hover text-primary-theme-contrast' : 'bg-slate-200 text-slate-700'
               }`}
             >
               {total}
@@ -849,7 +872,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             onClick={() => setAdminSubTab('scanner')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               adminSubTab === 'scanner'
-                ? 'bg-sky-600 text-white shadow-xs'
+                ? 'bg-primary-theme text-primary-theme-contrast shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:text-slate-900 hover:bg-slate-200'
             }`}
           >
@@ -864,7 +887,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             onClick={() => setAdminSubTab('events')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               adminSubTab === 'events'
-                ? 'bg-sky-600 text-white shadow-xs'
+                ? 'bg-primary-theme text-primary-theme-contrast shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:text-slate-900 hover:bg-slate-200'
             }`}
           >
@@ -872,7 +895,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <span>Gestão de Eventos</span>
             <span
               className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
-                adminSubTab === 'events' ? 'bg-sky-700 text-white' : 'bg-slate-200 text-slate-700'
+                adminSubTab === 'events' ? 'bg-primary-theme-hover text-primary-theme-contrast' : 'bg-slate-200 text-slate-700'
               }`}
             >
               {eventsList.length}
@@ -889,24 +912,48 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       </div>
 
-      {/* Sub-Aba: Leitor de Presença QR (Exclusivo Admin) */}
-      {adminSubTab === 'scanner' && (
-        <div className="pt-1">
-          <QrScanner
-            isActive={adminSubTab === 'scanner'}
-            onAttendanceMarked={(p) => {
-              onUpdateParticipants();
-              showToast(`Presença confirmada: ${p.fullName} (${p.registrationNumber})`, 'success');
-            }}
-            onNavigateToAdmin={() => setAdminSubTab('participants')}
-          />
-        </div>
-      )}
+      {/* Transição Suave entre Sub-Abas do Painel */}
+      <AnimatePresence mode="wait">
+        {/* Sub-Aba: Leitor de Presença QR (Exclusivo Admin) */}
+        {adminSubTab === 'scanner' && (
+          <motion.div
+            key="admin-subtab-scanner"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="pt-1"
+          >
+            <QrScanner
+              isActive={adminSubTab === 'scanner'}
+              onAttendanceMarked={(p) => {
+                onUpdateParticipants();
+                showToast(`Presença confirmada: ${p.fullName} (${p.registrationNumber})`, 'success');
+              }}
+              onNavigateToAdmin={() => setAdminSubTab('participants')}
+            />
 
-      {/* Sub-Aba: Lista de Participantes e Relatórios */}
-      {adminSubTab === 'participants' && (
-        <>
-      {/* Cards de Métricas / KPIs */}
+            {/* Log de Eventos de Entrada Recente (Abaixo do Leitor de Câmera) */}
+            <div className="max-w-3xl mx-auto px-4 pb-8">
+              <RecentAttendanceLog
+                participants={participants}
+                onViewBadge={(p) => setSelectedParticipantForQr(p)}
+              />
+            </div>
+          </motion.div>
+        )}
+
+        {/* Sub-Aba: Lista de Participantes e Relatórios */}
+        {adminSubTab === 'participants' && (
+          <motion.div
+            key="admin-subtab-participants"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-6"
+          >
+            {/* Cards de Métricas / KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Total */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs">
@@ -956,6 +1003,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Gráfico de Rosca: Proporção de Presentes vs. Ausentes (Recharts) */}
+      <AttendanceChart
+        presentCount={chartPresentCount}
+        absentCount={chartAbsentCount}
+        total={chartTotal}
+        eventName={selectedEventObj?.name}
+      />
 
       {/* Filtros e Barra de Pesquisa */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
@@ -1310,18 +1365,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
       </div>
-        </>
-      )}
+          </motion.div>
+        )}
 
-      {/* Sub-Aba: Gestão de Eventos */}
-      {adminSubTab === 'events' && (
-        <EventManager
-          participants={participants}
-          onUpdateParticipants={onUpdateParticipants}
-          onShowToast={showToast}
-          companySettings={companySettings}
-        />
-      )}
+        {/* Sub-Aba: Gestão de Eventos */}
+        {adminSubTab === 'events' && (
+          <motion.div
+            key="admin-subtab-events"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+          >
+            <EventManager
+              participants={participants}
+              onUpdateParticipants={onUpdateParticipants}
+              onShowToast={showToast}
+              companySettings={companySettings}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Modal de Exibição / Download do QR Code Individual */}
       {selectedParticipantForQr && (

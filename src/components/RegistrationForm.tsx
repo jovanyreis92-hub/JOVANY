@@ -188,7 +188,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
         <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 sm:p-8">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 text-xs font-semibold tracking-wide border border-sky-400/20">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-theme/20 text-primary-theme-contrast text-xs font-semibold tracking-wide border border-primary-theme/30" style={{ backgroundColor: 'var(--primary-ring)', color: '#ffffff' }}>
                 <UserPlus className="h-3.5 w-3.5" />
                 <span>Formulário de Inscrição</span>
               </div>
@@ -205,10 +205,11 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                   id="btn-share-registration-form"
                   type="button"
                   onClick={onOpenMobileShare}
-                  className="text-xs text-sky-300 hover:text-white flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-sky-950/70 hover:bg-sky-900 transition-colors border border-sky-700/60 cursor-pointer"
+                  className="text-xs text-white hover:text-white flex items-center gap-1.5 py-1 px-2.5 rounded-lg transition-colors border cursor-pointer"
+                  style={{ backgroundColor: 'var(--primary-hover)', borderColor: 'var(--primary-color)' }}
                   title="Compartilhar link de inscrição para celulares e outras redes"
                 >
-                  <Share2 className="h-3.5 w-3.5 text-sky-400" />
+                  <Share2 className="h-3.5 w-3.5" />
                   <span>Compartilhar Link / QR</span>
                 </button>
               )}
@@ -268,7 +269,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               htmlFor="select-event"
               className="block text-xs font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-1.5"
             >
-              <Calendar className="h-3.5 w-3.5 text-sky-600" />
+              <Calendar className="h-3.5 w-3.5 text-primary-theme" />
               <span>Evento Destinado</span> <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
@@ -276,7 +277,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 id="select-event"
                 value={selectedEventId}
                 onChange={(e) => setSelectedEventId(e.target.value)}
-                className="w-full pl-3.5 pr-8 py-2.5 bg-slate-50/70 border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm font-medium cursor-pointer"
+                className="w-full pl-3.5 pr-8 py-2.5 bg-slate-50/70 border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme transition-all text-sm font-medium cursor-pointer"
               >
                 {events.map((evt) => (
                   <option key={evt.id} value={evt.id}>
@@ -293,7 +294,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                   className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1"
                 >
                   <div className="flex items-center gap-1.5 text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                    <MapPin className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                    <MapPin className="h-3.5 w-3.5 text-primary-theme shrink-0" />
                     <span>Local do Evento ou Reunião</span>
                   </div>
                   <p className="text-[14px] font-semibold text-slate-800 break-words">
@@ -310,7 +311,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                     className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1"
                   >
                     <div className="flex items-center gap-1.5 text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                      <FileText className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                      <FileText className="h-3.5 w-3.5 text-primary-theme shrink-0" />
                       <span>Descrição ou Observações</span>
                     </div>
                     <p className="text-[14px] leading-relaxed text-slate-700 break-words whitespace-pre-line">
@@ -336,7 +337,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                   {validity.status === 'open' && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
                   {validity.status === 'ended' && <AlertTriangle className="h-4 w-4 text-rose-600" />}
                   {validity.status === 'not_started' && <Clock className="h-4 w-4 text-amber-600" />}
-                  {validity.status === 'no_restriction' && <Timer className="h-4 w-4 text-sky-600" />}
+                  {validity.status === 'no_restriction' && <Timer className="h-4 w-4 text-primary-theme" />}
                 </div>
 
                 <div className="space-y-0.5 text-xs flex-1">
@@ -384,7 +385,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 autoCorrect="on"
                 autoCapitalize="words"
                 lang="pt-BR"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm uppercase"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme transition-all text-sm uppercase"
                 required
               />
             </div>
@@ -415,7 +416,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 value={registrationNumber}
                 onChange={(e) => setRegistrationNumber(e.target.value.replace(/\D/g, ''))}
                 placeholder="Ex: 10452"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm font-mono tracking-wider"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme transition-all text-sm font-mono tracking-wider"
                 required
               />
             </div>
@@ -447,7 +448,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 autoCorrect="on"
                 autoCapitalize="words"
                 lang="pt-BR"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-sm uppercase"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme transition-all text-sm uppercase"
                 required
               />
             </div>
@@ -462,7 +463,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               className={`w-full flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-semibold text-sm transition-all shadow-sm ${
                 validity && !validity.canRegister
                   ? 'bg-slate-300 text-slate-500 cursor-not-allowed border border-slate-300'
-                  : 'bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white shadow-sky-600/20 hover:shadow-md cursor-pointer'
+                  : 'btn-primary-action cursor-pointer'
               } disabled:opacity-60`}
             >
               {validity && !validity.canRegister ? (

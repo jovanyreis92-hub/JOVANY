@@ -155,7 +155,7 @@ export const EventQrModal: React.FC<EventQrModalProps> = ({
                 {validity.status === 'open' && <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
                 {validity.status === 'ended' && <AlertTriangle className="h-5 w-5 text-rose-600" />}
                 {validity.status === 'not_started' && <Clock className="h-5 w-5 text-amber-600" />}
-                {validity.status === 'no_restriction' && <Clock className="h-5 w-5 text-sky-600" />}
+                {validity.status === 'no_restriction' && <Clock className="h-5 w-5 text-primary-theme" />}
               </div>
 
               <div className="space-y-1 text-xs">
@@ -214,7 +214,7 @@ export const EventQrModal: React.FC<EventQrModalProps> = ({
           {/* Dados do Evento */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
             <div className="flex items-center gap-2 text-slate-700">
-              <Calendar className="h-4 w-4 text-sky-600 shrink-0" />
+              <Calendar className="h-4 w-4 text-primary-theme shrink-0" />
               <span><strong>Data do Evento:</strong> {formattedEventDate}</span>
             </div>
             {event.location && (
@@ -266,7 +266,7 @@ export const EventQrModal: React.FC<EventQrModalProps> = ({
             <button
               type="button"
               onClick={handleNativeShare}
-              className="w-full py-2.5 px-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs"
+              className="w-full py-2.5 px-3 btn-primary-action rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-xs"
             >
               <Share2 className="h-4 w-4" />
               <span>Compartilhar Link</span>
@@ -278,7 +278,7 @@ export const EventQrModal: React.FC<EventQrModalProps> = ({
               href={uniqueEventUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-sky-600 hover:text-sky-800 font-medium transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs text-primary-theme hover:underline font-medium transition-colors"
             >
               <span>Testar formulário deste evento em nova aba</span>
               <ExternalLink className="h-3 w-3" />

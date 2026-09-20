@@ -14,11 +14,22 @@ import {
   Type,
   Maximize2,
   Globe,
-  PenTool
+  PenTool,
+  Palette,
+  RotateCcw
 } from 'lucide-react';
 import { CompanySettings, LayoutFontFamily, LayoutScaleSize } from '../types';
 import { saveCompanySettings } from '../utils/storage';
-import { FONT_OPTIONS, SCALE_OPTIONS, applyLayoutPreferences } from '../utils/theme';
+import { 
+  FONT_OPTIONS, 
+  SCALE_OPTIONS, 
+  COLOR_PRESETS, 
+  DEFAULT_PRIMARY_COLOR, 
+  applyLayoutPreferences,
+  applyPrimaryColor,
+  hexToRgb,
+  computeThemeColors
+} from '../utils/theme';
 
 interface CompanySettingsModalProps {
   isOpen: boolean;
@@ -83,25 +94,59 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
   const [selectedFont, setSelectedFont] = useState<LayoutFontFamily>(currentSettings.fontFamily || 'inter');
   const [selectedScale, setSelectedScale] = useState<LayoutScaleSize>(currentSettings.layoutScale || 'normal');
 
+  // Cor Primária do Sistema
+  const [selectedPrimaryColor, setSelectedPrimaryColor] = useState<string>(
+    currentSettings.primaryColor || DEFAULT_PRIMARY_COLOR
+  );
+  const [customHexInput, setCustomHexInput] = useState<string>(
+    currentSettings.primaryColor || DEFAULT_PRIMARY_COLOR
+  );
+
   // URL pública para acesso em outras redes
   const [publicAppUrl, setPublicAppUrl] = useState<string>(currentSettings.publicAppUrl || '');
 
   useEffect(() => {
     setSelectedFont(currentSettings.fontFamily || 'inter');
     setSelectedScale(currentSettings.layoutScale || 'normal');
+    setSelectedPrimaryColor(currentSettings.primaryColor || DEFAULT_PRIMARY_COLOR);
+    setCustomHexInput(currentSettings.primaryColor || DEFAULT_PRIMARY_COLOR);
     setPublicAppUrl(currentSettings.publicAppUrl || '');
     setCreatorName(currentSettings.creatorName || 'Jovany Reis');
     setCreatorSignature(
       currentSettings.creatorSignature || 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições'
     );
-  }, [currentSettings.fontFamily, currentSettings.layoutScale, currentSettings.publicAppUrl, currentSettings.creatorName, currentSettings.creatorSignature, isOpen]);
+  }, [
+    currentSettings.fontFamily, 
+    currentSettings.layoutScale, 
+    currentSettings.primaryColor,
+    currentSettings.publicAppUrl, 
+    currentSettings.creatorName, 
+    currentSettings.creatorSignature, 
+    isOpen
+  ]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!isOpen) return null;
 
+  const handleColorChange = (newHex: string) => {
+    let formatted = newHex.trim();
+    if (!formatted.startsWith('#') && /^[0-9A-Fa-f]{3,6}$/.test(formatted)) {
+      formatted = '#' + formatted;
+    }
+    setSelectedPrimaryColor(formatted);
+    setCustomHexInput(formatted);
+    if (hexToRgb(formatted)) {
+      applyLayoutPreferences(selectedFont, selectedScale, formatted);
+    }
+  };
+
   const handleCancel = () => {
-    applyLayoutPreferences(currentSettings.fontFamily, currentSettings.layoutScale);
+    applyLayoutPreferences(
+      currentSettings.fontFamily, 
+      currentSettings.layoutScale, 
+      currentSettings.primaryColor
+    );
     onClose();
   };
 
@@ -228,13 +273,14 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
       adminPassword: finalPassword,
       fontFamily: selectedFont,
       layoutScale: selectedScale,
+      primaryColor: hexToRgb(selectedPrimaryColor) ? selectedPrimaryColor : DEFAULT_PRIMARY_COLOR,
       publicAppUrl: publicAppUrl.trim() || undefined,
       creatorName: creatorName.trim() || undefined,
       creatorSignature: creatorSignature.trim() || undefined,
     };
 
     saveCompanySettings(updated);
-    applyLayoutPreferences(selectedFont, selectedScale);
+    applyLayoutPreferences(selectedFont, selectedScale, updated.primaryColor);
     onSaved(updated);
     onClose();
   };
@@ -492,7 +538,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-700">
                   Tamanho / Proporção do Layout
                 </label>
-                <span className="text-[11px] font-bold text-sky-700 bg-sky-100 px-2 py-0.5 rounded-full">
+                <span className="text-[11px] font-bold text-primary-theme-text bg-primary-theme-soft px-2 py-0.5 rounded-full border border-primary-theme-light">
                   {SCALE_OPTIONS.find((s) => s.id === selectedScale)?.percentage} ({SCALE_OPTIONS.find((s) => s.id === selectedScale)?.name})
                 </span>
               </div>
@@ -505,18 +551,18 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                       type="button"
                       onClick={() => {
                         setSelectedScale(scale.id);
-                        applyLayoutPreferences(selectedFont, scale.id);
+                        applyLayoutPreferences(selectedFont, scale.id, selectedPrimaryColor);
                       }}
                       className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer relative flex flex-col items-center justify-between gap-1 ${
                         isSelected
-                          ? 'border-sky-500 bg-sky-50/70 shadow-xs ring-2 ring-sky-500/20'
+                          ? 'border-primary-theme bg-primary-theme-soft shadow-xs ring-2 ring-primary-theme/20'
                           : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'
                       }`}
                     >
                       <span className="text-xs font-bold text-slate-900">
                         {scale.name}
                       </span>
-                      <span className="text-[11px] font-mono font-bold text-sky-700">
+                      <span className="text-[11px] font-mono font-bold text-primary-theme-text">
                         {scale.percentage}
                       </span>
                       <span className="text-[9px] text-slate-500 leading-tight">
@@ -528,14 +574,120 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
               </div>
             </div>
 
+            {/* Nova Seção: Personalização da Cor Primária do Sistema */}
+            <div id="company-primary-color-section" className="space-y-3 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                  <Palette className="h-3.5 w-3.5 text-primary-theme" />
+                  <span>Cor Primária do Sistema & Botões</span>
+                </label>
+                <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                  <span
+                    className="h-3 w-3 rounded-full border border-black/10 shadow-xs shrink-0"
+                    style={{ backgroundColor: selectedPrimaryColor }}
+                  ></span>
+                  <span className="text-[11px] font-mono font-bold text-slate-700">
+                    {selectedPrimaryColor.toUpperCase()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Presets de Cores Corporativas */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {COLOR_PRESETS.map((preset) => {
+                  const isSelected = selectedPrimaryColor.toLowerCase() === preset.hex.toLowerCase();
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleColorChange(preset.hex)}
+                      className={`p-2 rounded-xl border text-left transition-all cursor-pointer relative flex items-center gap-2.5 ${
+                        isSelected
+                          ? 'border-slate-900 bg-slate-900/5 ring-2 ring-primary-theme/30 shadow-xs'
+                          : 'border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300'
+                      }`}
+                      title={`${preset.name} (${preset.hex}) - ${preset.tag}`}
+                    >
+                      <span
+                        className="h-6 w-6 rounded-lg shadow-xs shrink-0 flex items-center justify-center border border-black/10"
+                        style={{ backgroundColor: preset.hex }}
+                      >
+                        {isSelected && <Check className="h-3.5 w-3.5 text-white drop-shadow-xs" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] font-bold text-slate-900 leading-tight truncate">
+                          {preset.name}
+                        </div>
+                        <div className="text-[9px] text-slate-500 font-mono leading-tight truncate">
+                          {preset.tag}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Seletor Livre Personalizado & Botão de Restauração */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <label
+                    htmlFor="input-custom-color-picker"
+                    className="relative cursor-pointer h-7 w-8 rounded-lg overflow-hidden border border-slate-300 shadow-xs shrink-0 flex items-center justify-center"
+                    style={{ backgroundColor: selectedPrimaryColor }}
+                    title="Clique para abrir a paleta livre de cores"
+                  >
+                    <input
+                      id="input-custom-color-picker"
+                      type="color"
+                      value={selectedPrimaryColor.startsWith('#') ? selectedPrimaryColor : '#0284c7'}
+                      onChange={(e) => handleColorChange(e.target.value)}
+                      className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                    />
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-medium text-slate-600">Código Hex:</span>
+                    <input
+                      type="text"
+                      maxLength={7}
+                      value={customHexInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCustomHexInput(val);
+                        if (/^#?[0-9A-Fa-f]{6}$/.test(val)) {
+                          handleColorChange(val);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!hexToRgb(customHexInput)) {
+                          setCustomHexInput(selectedPrimaryColor);
+                        }
+                      }}
+                      placeholder="#0284C7"
+                      className="w-20 px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-md uppercase text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleColorChange(DEFAULT_PRIMARY_COLOR)}
+                  className="flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900 font-medium px-2 py-1 rounded hover:bg-slate-200/70 transition-colors cursor-pointer"
+                  title="Restaurar cor padrão original (Azul Céu / Sky-600)"
+                >
+                  <RotateCcw className="h-3 w-3 text-slate-500" />
+                  <span>Padrão Corporativo</span>
+                </button>
+              </div>
+            </div>
+
             {/* Caixa de Demonstração / Prévia ao Vivo */}
             <div className="p-3.5 bg-slate-900 text-white rounded-xl border border-slate-800">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold flex items-center gap-1.5">
-                  <Sparkles className="h-3 w-3 text-sky-400" />
-                  Prévia em Tempo Real
+                  <Sparkles className="h-3 w-3 text-primary-theme" />
+                  Prévia em Tempo Real (Tipografia, Escala & Cor Primária)
                 </span>
-                <span className="text-[10px] text-sky-300 font-medium">
+                <span className="text-[10px] text-slate-300 font-medium">
                   {FONT_OPTIONS.find((f) => f.id === selectedFont)?.name} • {SCALE_OPTIONS.find((s) => s.id === selectedScale)?.percentage}
                 </span>
               </div>
@@ -557,7 +709,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     Presente
                   </span>
-                  <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-sky-600 text-white shadow-xs">
+                  <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-primary-theme text-primary-theme-contrast shadow-xs">
                     Credenciado
                   </span>
                 </div>
@@ -756,7 +908,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
             id="btn-save-company-settings"
             type="button"
             onClick={handleSave}
-            className="py-2.5 px-5 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
+            className="py-2.5 px-5 btn-primary-action rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 cursor-pointer"
           >
             <Check className="h-4 w-4" />
             <span>Salvar Alterações</span>

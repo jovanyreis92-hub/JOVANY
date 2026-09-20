@@ -104,12 +104,128 @@ export const SCALE_OPTIONS: ScaleOption[] = [
   },
 ];
 
+export interface ColorPreset {
+  id: string;
+  name: string;
+  hex: string;
+  category: string;
+  tag: string;
+}
+
+export const DEFAULT_PRIMARY_COLOR = '#0284c7';
+
+export const COLOR_PRESETS: ColorPreset[] = [
+  { id: 'sky', name: 'Azul Céu', hex: '#0284c7', category: 'Padrão Corporativo', tag: 'Original' },
+  { id: 'blue', name: 'Azul Safira', hex: '#2563eb', category: 'Corporativo Clássico', tag: 'Clássico' },
+  { id: 'navy', name: 'Azul Marinho', hex: '#1e3a8a', category: 'Formal Institucional', tag: 'Executivo' },
+  { id: 'indigo', name: 'Índigo Tech', hex: '#4f46e5', category: 'Tecnologia & Inovação', tag: 'Tech' },
+  { id: 'violet', name: 'Violeta / Púrpura', hex: '#7c3aed', category: 'Criativo & Nobre', tag: 'Criativo' },
+  { id: 'emerald', name: 'Verde Esmeralda', hex: '#059669', category: 'Saúde & Sustentabilidade', tag: 'Sustentável' },
+  { id: 'teal', name: 'Verde Petróleo', hex: '#0d9488', category: 'Elegância & Equilíbrio', tag: 'Sereno' },
+  { id: 'rose', name: 'Vinho / Bordeaux', hex: '#be123c', category: 'Eventos & Gala', tag: 'Prestígio' },
+  { id: 'red', name: 'Rubi Intenso', hex: '#dc2626', category: 'Vibrante & Marcante', tag: 'Impacto' },
+  { id: 'orange', name: 'Laranja Coral', hex: '#ea580c', category: 'Dinâmico & Enérgico', tag: 'Energia' },
+  { id: 'amber', name: 'Âmbar Dourado', hex: '#d97706', category: 'Nobre & Caloroso', tag: 'Dourado' },
+  { id: 'slate', name: 'Grafite Neutro', hex: '#334155', category: 'Minimalista & Técnico', tag: 'Minimal' },
+];
+
+export function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  let cleanHex = hex.trim().replace(/^#/, '');
+  if (cleanHex.length === 3) {
+    cleanHex = cleanHex.split('').map((c) => c + c).join('');
+  }
+  if (!/^[0-9A-Fa-f]{6}$/.test(cleanHex)) {
+    return null;
+  }
+  const num = parseInt(cleanHex, 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+}
+
+export function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return '#' + [clamp(r), clamp(g), clamp(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+export function adjustBrightness(r: number, g: number, b: number, percent: number): string {
+  if (percent > 0) {
+    const factor = percent / 100;
+    const newR = r + (255 - r) * factor;
+    const newG = g + (255 - g) * factor;
+    const newB = b + (255 - b) * factor;
+    return rgbToHex(newR, newG, newB);
+  } else {
+    const factor = (100 + percent) / 100;
+    return rgbToHex(r * factor, g * factor, b * factor);
+  }
+}
+
+export interface ComputedThemeColors {
+  primary: string;
+  hover: string;
+  active: string;
+  light: string;
+  soft: string;
+  border: string;
+  text: string;
+  contrast: string;
+  ring: string;
+  shadow: string;
+}
+
+export function computeThemeColors(hexInput?: string): ComputedThemeColors {
+  const baseHex = hexInput && hexToRgb(hexInput) ? hexInput : DEFAULT_PRIMARY_COLOR;
+  const rgb = hexToRgb(baseHex) || { r: 2, g: 132, b: 199 };
+  const { r, g, b } = rgb;
+
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const contrast = luminance > 0.65 ? '#0f172a' : '#ffffff';
+
+  return {
+    primary: rgbToHex(r, g, b),
+    hover: adjustBrightness(r, g, b, -14),
+    active: adjustBrightness(r, g, b, -24),
+    light: adjustBrightness(r, g, b, 82),
+    soft: adjustBrightness(r, g, b, 94),
+    border: adjustBrightness(r, g, b, 65),
+    text: adjustBrightness(r, g, b, -20),
+    contrast,
+    ring: `rgba(${r}, ${g}, ${b}, 0.35)`,
+    shadow: `0 4px 14px 0 rgba(${r}, ${g}, ${b}, 0.22)`,
+  };
+}
+
 /**
- * Aplica as preferências de fonte e tamanho no DOM global.
+ * Aplica as variáveis CSS de cor primária no DOM global.
+ */
+export function applyPrimaryColor(hexColor?: string): void {
+  if (typeof document === 'undefined') return;
+  const colors = computeThemeColors(hexColor);
+  const root = document.documentElement;
+
+  root.style.setProperty('--primary-color', colors.primary);
+  root.style.setProperty('--primary-hover', colors.hover);
+  root.style.setProperty('--primary-active', colors.active);
+  root.style.setProperty('--primary-light', colors.light);
+  root.style.setProperty('--primary-soft', colors.soft);
+  root.style.setProperty('--primary-border', colors.border);
+  root.style.setProperty('--primary-text', colors.text);
+  root.style.setProperty('--primary-contrast', colors.contrast);
+  root.style.setProperty('--primary-ring', colors.ring);
+  root.style.setProperty('--primary-shadow', colors.shadow);
+  root.setAttribute('data-primary-color', colors.primary);
+}
+
+/**
+ * Aplica as preferências de fonte, tamanho e cor primária no DOM global.
  */
 export function applyLayoutPreferences(
   fontFamily?: LayoutFontFamily,
-  layoutScale?: LayoutScaleSize
+  layoutScale?: LayoutScaleSize,
+  primaryColor?: string
 ): void {
   if (typeof document === 'undefined') return;
 
@@ -128,4 +244,7 @@ export function applyLayoutPreferences(
   // Atributos de dados para seletores e debugging
   document.documentElement.setAttribute('data-font', fontId);
   document.documentElement.setAttribute('data-scale', scaleId);
+
+  // Aplica a cor primária dinâmica
+  applyPrimaryColor(primaryColor);
 }
