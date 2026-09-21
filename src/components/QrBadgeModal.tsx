@@ -176,7 +176,7 @@ export const QrBadgeModal: React.FC<QrBadgeModalProps> = ({
             {eventLocation && (
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5 text-sky-600" /> Local do Evento ou Reunião:
+                  <MapPin className="h-3.5 w-3.5 text-primary-theme" /> Local do Evento ou Reunião:
                 </span>
                 <span className="font-semibold text-slate-800 text-right truncate max-w-[200px]" title={eventLocation}>
                   {eventLocation}
@@ -206,7 +206,7 @@ export const QrBadgeModal: React.FC<QrBadgeModalProps> = ({
               type="button"
               onClick={handleDownloadQr}
               disabled={isDownloadingQr || !qrDataUrl}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl font-medium text-sm transition-colors shadow-sm disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 btn-primary-action text-white rounded-xl font-medium text-sm transition-colors shadow-sm disabled:opacity-50"
             >
               <Download className="h-4 w-4" />
               <span>{isDownloadingQr ? 'Baixando...' : 'Baixar Código QR (PNG)'}</span>

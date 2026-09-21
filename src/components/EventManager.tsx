@@ -250,7 +250,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
           id="btn-create-event-top"
           type="button"
           onClick={openNewEventModal}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 btn-primary-action text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
         >
           <Plus className="h-4 w-4" />
           <span>Novo Evento</span>
@@ -274,7 +274,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
               key={evt.id}
               className={`bg-white rounded-2xl border transition-all duration-200 flex flex-col justify-between overflow-hidden shadow-xs ${
                 evt.active
-                  ? 'border-sky-500 ring-2 ring-sky-500/15'
+                  ? 'border-primary-theme ring-2 ring-primary-theme/20'
                   : 'border-slate-200 hover:border-slate-300'
               }`}
             >
@@ -284,7 +284,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       {evt.active ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-600 text-white shadow-xs">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary-theme text-primary-theme-contrast shadow-xs">
                           <Star className="h-3 w-3 fill-current" />
                           <span>Ativo Agora</span>
                         </span>
@@ -314,7 +314,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
                     <button
                       type="button"
                       onClick={() => openEditModal(evt)}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-primary-theme hover:bg-slate-100 transition-colors cursor-pointer"
                       title="Editar detalhes do evento"
                     >
                       <Edit3 className="h-4 w-4" />
@@ -333,7 +333,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
                 {/* Local e Data */}
                 <div className="space-y-1.5 text-xs text-slate-600">
                   <div className="flex items-center gap-2">
-                    <Calendar className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                    <Calendar className="h-3.5 w-3.5 text-primary-theme shrink-0" />
                     <span className="font-medium text-slate-800">{formattedDate}</span>
                   </div>
                   {evt.location && (
@@ -356,7 +356,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
                     <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 text-slate-700 font-semibold">
-                          <Timer className="h-3.5 w-3.5 text-sky-600" />
+                          <Timer className="h-3.5 w-3.5 text-primary-theme" />
                           <span>Inscrições & Validade:</span>
                         </div>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${validity.badgeClass}`}>
@@ -415,7 +415,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setQrModalEvent(evt)}
-                    className="inline-flex items-center gap-1.5 py-1.5 px-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+                    className="inline-flex items-center gap-1.5 py-1.5 px-2.5 btn-primary-action text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer shadow-xs"
                     title={`Visualizar e compartilhar o QR Code único com prazo de validade para ${evt.name}`}
                   >
                     <QrCode className="h-3.5 w-3.5" />
@@ -539,17 +539,17 @@ export const EventManager: React.FC<EventManagerProps> = ({
                   onChange={(e) => setFormDescription(e.target.value)}
                   placeholder="Ex: Alinhamento de metas corporativas e integração de novos membros."
                   rows={2}
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-sm"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme text-sm"
                 />
               </div>
 
               {/* Período de Inscrição e Prazo de Validade para Cadastro */}
-              <div className="p-3.5 bg-sky-50/70 rounded-xl border border-sky-200/80 space-y-3">
-                <div className="flex items-center gap-2 text-sky-950 font-bold text-xs">
-                  <Timer className="h-4 w-4 text-sky-600 shrink-0" />
+              <div className="p-3.5 bg-primary-theme-soft rounded-xl border border-primary-theme/30 space-y-3">
+                <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
+                  <Timer className="h-4 w-4 text-primary-theme shrink-0" />
                   <span>Prazo de Validade & Período de Inscrição</span>
                 </div>
-                <p className="text-[11px] text-sky-800 leading-relaxed">
+                <p className="text-[11px] text-primary-theme-text leading-relaxed">
                   Defina as datas limites para os participantes se cadastrarem. Fora deste período, o formulário e o QR Code bloqueiam novos cadastros automaticamente.
                 </p>
 
@@ -589,7 +589,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
                     type="checkbox"
                     checked={formActive}
                     onChange={(e) => setFormActive(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    className="h-4 w-4 rounded border-slate-300 text-primary-theme focus:ring-primary-theme"
                   />
                   <span className="text-xs font-medium text-slate-800">
                     Definir este como o <strong>evento ativo</strong> no sistema (padrão para novos participantes)
@@ -608,7 +608,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 btn-primary-action text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                 >
                   <Save className="h-4 w-4" />
                   <span>{editingEvent ? 'Salvar Alterações' : 'Criar Evento'}</span>

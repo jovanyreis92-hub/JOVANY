@@ -194,9 +194,9 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
           )}
 
           {/* QR Code de Inscrição */}
-          <div className="flex flex-col items-center justify-center p-4 sm:p-5 bg-gradient-to-b from-sky-50/40 to-slate-50 border border-sky-100/80 rounded-2xl text-center">
+          <div className="flex flex-col items-center justify-center p-4 sm:p-5 bg-gradient-to-b from-slate-50 to-slate-100/60 border border-slate-200/80 rounded-2xl text-center">
             <p className="text-xs font-semibold text-slate-700 mb-3 flex items-center gap-1.5">
-              <QrCode className="h-4 w-4 text-sky-600" />
+              <QrCode className="h-4 w-4 text-primary-theme" />
               Aponte a câmera do celular para abrir o formulário de cadastro:
             </p>
 
@@ -209,7 +209,7 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
                 />
               ) : (
                 <div className="w-48 h-48 flex items-center justify-center text-slate-400">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-theme"></div>
                 </div>
               )}
             </div>
@@ -223,14 +223,14 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                <Link className="h-3.5 w-3.5 text-sky-600" />
+                <Link className="h-3.5 w-3.5 text-primary-theme" />
                 Link Direto para Inscrição:
               </label>
 
               <button
                 type="button"
                 onClick={() => setIsEditingUrl(!isEditingUrl)}
-                className="text-[11px] text-sky-600 hover:text-sky-800 font-medium flex items-center gap-1 cursor-pointer"
+                className="text-[11px] text-primary-theme hover:underline font-medium flex items-center gap-1 cursor-pointer"
                 title="Personalizar endereço do link"
               >
                 <Settings2 className="h-3.5 w-3.5" />
@@ -252,12 +252,12 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
                   value={customInputUrl}
                   onChange={(e) => setCustomInputUrl(e.target.value)}
                   placeholder="Ex: https://meuevento.com ou https://ais-pre-...run.app"
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono text-xs text-slate-800 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme"
                 />
                 <div className="flex items-center gap-2 pt-1">
                   <button
                     type="submit"
-                    className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+                    className="px-3 py-1.5 btn-primary-action text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
                   >
                     Salvar e Atualizar QR
                   </button>
@@ -282,7 +282,7 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
                 <button
                   type="button"
                   onClick={handleCopyLink}
-                  className="px-3.5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
+                  className="px-3.5 py-2.5 btn-primary-action text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
                   title="Copiar link"
                 >
                   {copied ? (

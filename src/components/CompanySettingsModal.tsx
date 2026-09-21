@@ -498,11 +498,11 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                       type="button"
                       onClick={() => {
                         setSelectedFont(font.id);
-                        applyLayoutPreferences(font.id, selectedScale);
+                        applyLayoutPreferences(font.id, selectedScale, selectedPrimaryColor);
                       }}
                       className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer relative flex flex-col justify-between ${
                         isSelected
-                          ? 'border-sky-500 bg-sky-50/70 shadow-xs ring-2 ring-sky-500/20'
+                          ? 'border-primary-theme bg-primary-theme-soft shadow-xs ring-2 ring-primary-theme/20'
                           : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'
                       }`}
                     >
@@ -511,7 +511,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                           {font.name}
                         </span>
                         {isSelected && (
-                          <span className="h-4 w-4 rounded-full bg-sky-600 text-white flex items-center justify-center shrink-0">
+                          <span className="h-4 w-4 rounded-full bg-primary-theme text-primary-theme-contrast flex items-center justify-center shrink-0">
                             <Check className="h-2.5 w-2.5" />
                           </span>
                         )}
@@ -721,13 +721,13 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
           <div className="pt-3 border-t border-slate-100 space-y-2.5">
             <div className="flex items-center justify-between">
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <Globe className="h-3.5 w-3.5 text-sky-600" />
+                <Globe className="h-3.5 w-3.5 text-primary-theme" />
                 <span>URL Pública de Inscrição (Acesso em Outras Redes / 4G / Wi-Fi)</span>
               </label>
               <button
                 type="button"
                 onClick={() => setPublicAppUrl('https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app')}
-                className="text-[11px] text-sky-600 hover:text-sky-800 font-medium underline cursor-pointer"
+                className="text-[11px] text-primary-theme hover:underline font-medium cursor-pointer"
               >
                 Preencher com URL Pública Oficial
               </button>
@@ -741,7 +741,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                 value={publicAppUrl}
                 onChange={(e) => setPublicAppUrl(e.target.value)}
                 placeholder="https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app"
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme"
               />
               {publicAppUrl && (
                 <button
@@ -760,7 +760,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
           <div className="pt-3 border-t border-slate-100 space-y-3">
             <div className="flex items-center justify-between">
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <PenTool className="h-3.5 w-3.5 text-sky-600" />
+                <PenTool className="h-3.5 w-3.5 text-primary-theme" />
                 <span>Assinatura e Nome do Criador (Rodapé)</span>
               </label>
               <button
@@ -769,7 +769,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                   setCreatorName('Jovany Reis');
                   setCreatorSignature('Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições');
                 }}
-                className="text-[11px] text-sky-600 hover:text-sky-800 font-medium underline cursor-pointer"
+                className="text-[11px] text-primary-theme hover:underline font-medium cursor-pointer"
               >
                 Restaurar Padrão
               </button>
@@ -788,7 +788,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                   value={creatorName}
                   onChange={(e) => setCreatorName(e.target.value)}
                   placeholder="Ex: Jovany Reis"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 font-medium"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme font-medium"
                 />
               </div>
 
@@ -801,7 +801,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                   value={creatorSignature}
                   onChange={(e) => setCreatorSignature(e.target.value)}
                   placeholder="Ex: Desenvolvido por Jovany Reis"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme"
                 />
               </div>
             </div>
@@ -818,7 +818,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
                 <Lock className="h-3.5 w-3.5 text-slate-500" />
                 <span>Segurança: Registrar / Alterar Login e Senha</span>
               </div>
-              <span className="text-xs text-sky-600 font-normal">
+              <span className="text-xs text-primary-theme font-normal">
                 {showPasswordChange ? 'Ocultar' : 'Configurar'}
               </span>
             </button>

@@ -68,7 +68,6 @@ interface AdminPanelProps {
   onUpdateParticipants: () => void;
   companySettings?: CompanySettings;
   onOpenCompanySettings?: () => void;
-  onOpenMobileShare?: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -79,7 +78,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateParticipants,
   companySettings,
   onOpenCompanySettings,
-  onOpenMobileShare,
 }) => {
   // Estado de autenticação do painel (Login vs Registro)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -616,7 +614,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     setAuthMode('register');
                     setRegError(null);
                   }}
-                  className="text-xs text-sky-600 hover:text-sky-800 font-medium transition-colors cursor-pointer"
+                  className="text-xs text-primary-theme hover:underline font-medium transition-colors cursor-pointer"
                 >
                   Deseja cadastrar novo login com outro usuário e senha? <strong>Clique aqui</strong>
                 </button>
@@ -625,8 +623,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           ) : (
             /* Modo 2: Registrar Novo Login e Senha */
             <form onSubmit={handleRegisterFromLockScreen} className="p-6 space-y-3.5">
-              <div className="bg-sky-50/80 border border-sky-200/80 rounded-xl p-3 text-xs text-sky-950 flex items-start gap-2">
-                <Sparkles className="h-4 w-4 text-sky-600 shrink-0 mt-0.5" />
+              <div className="bg-primary-theme-soft border border-primary-theme/30 rounded-xl p-3 text-xs text-slate-800 flex items-start gap-2">
+                <Sparkles className="h-4 w-4 text-primary-theme shrink-0 mt-0.5" />
                 <p className="leading-relaxed">
                   Cadastre novos usuários com nomes e senhas diferentes. Todos os logins cadastrados terão acesso garantido ao sistema.
                 </p>
@@ -787,10 +785,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             type="button"
             onClick={handleManualSync}
             disabled={isSyncing}
-            className="flex items-center gap-1.5 py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 py-2 px-3 bg-primary-theme-soft hover:bg-primary-theme-light text-primary-theme-text border border-primary-theme/30 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
             title="Atualizar lista com o servidor central imediatamente para buscar novos cadastros de outras redes"
           >
-            <RefreshCw className={`h-4 w-4 text-sky-600 ${isSyncing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-4 w-4 text-primary-theme ${isSyncing ? 'animate-spin' : ''}`} />
             <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
           </button>
 
@@ -904,11 +902,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         <div className="text-xs text-slate-500 hidden md:block">
-          {adminSubTab === 'scanner'
-            ? 'Câmera e validação ativa de credenciais'
-            : adminSubTab === 'events'
+          {adminSubTab === 'events'
             ? 'Criação, ativação e relatórios por evento'
-            : 'Filtros, busca e relatórios de presença'}
+            : adminSubTab === 'participants'
+            ? 'Filtros, busca e relatórios de presença'
+            : ''}
         </div>
       </div>
 
@@ -992,14 +990,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         {/* Taxa de Presença */}
-        <div className="bg-white p-4 rounded-2xl border border-sky-100 shadow-xs">
-          <div className="flex items-center justify-between text-sky-800 text-xs font-semibold uppercase tracking-wider">
+        <div className="bg-white p-4 rounded-2xl border border-primary-theme/20 shadow-xs">
+          <div className="flex items-center justify-between text-primary-theme-text text-xs font-semibold uppercase tracking-wider">
             <span>Taxa de Presença</span>
-            <span className="h-2 w-2 rounded-full bg-sky-500"></span>
+            <span className="h-2 w-2 rounded-full bg-primary-theme"></span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-sky-700">{attendanceRate}%</span>
-            <span className="text-xs text-sky-600">adesão</span>
+            <span className="text-2xl font-bold text-primary-theme">{attendanceRate}%</span>
+            <span className="text-xs text-primary-theme-text">adesão</span>
           </div>
         </div>
       </div>
@@ -1010,6 +1008,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         absentCount={chartAbsentCount}
         total={chartTotal}
         eventName={selectedEventObj?.name}
+      />
+
+      {/* Log de Eventos de Entrada Recente no Painel Administrativo */}
+      <RecentAttendanceLog
+        participants={participants}
+        onViewBadge={(p) => setSelectedParticipantForQr(p)}
       />
 
       {/* Filtros e Barra de Pesquisa */}
@@ -1023,7 +1027,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar por nome, matrícula ou empresa..."
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme"
           />
         </div>
 
@@ -1069,7 +1073,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         {/* Filtro por Evento */}
         <div className="flex items-center gap-1.5 bg-slate-100 py-1.5 px-3 rounded-xl self-stretch sm:self-auto border border-slate-200">
-          <Calendar className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+          <Calendar className="h-3.5 w-3.5 text-primary-theme shrink-0" />
           <label htmlFor="select-admin-event-filter" className="sr-only">Filtrar por evento</label>
           <select
             id="select-admin-event-filter"
@@ -1095,12 +1099,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             onClick={toggleSelectAllFiltered}
             className={`w-full sm:w-auto flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-colors border ${
               selectedIds.length > 0
-                ? 'bg-sky-50 text-sky-800 border-sky-300 hover:bg-sky-100'
+                ? 'bg-primary-theme-soft text-primary-theme-text border-primary-theme/40 hover:bg-primary-theme-light'
                 : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
             }`}
             title="Selecionar vários participantes para excluir"
           >
-            <CheckSquare className="h-3.5 w-3.5 text-sky-600" />
+            <CheckSquare className="h-3.5 w-3.5 text-primary-theme" />
             <span>
               {selectedIds.length > 0
                 ? `${selectedIds.length} Selecionados`
@@ -1134,19 +1138,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {selectedIds.length > 0 && (
         <div
           id="bulk-selection-bar"
-          className="bg-sky-50 border border-sky-200 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2 duration-200"
+          className="bg-primary-theme-soft border border-primary-theme/30 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2 duration-200"
         >
           <div className="flex items-center gap-3">
-            <span className="flex items-center justify-center h-7 w-7 rounded-full bg-sky-600 text-white font-bold text-xs shadow-xs">
+            <span className="flex items-center justify-center h-7 w-7 rounded-full bg-primary-theme text-primary-theme-contrast font-bold text-xs shadow-xs">
               {selectedIds.length}
             </span>
             <div>
-              <p className="text-xs text-sky-950 font-semibold">
+              <p className="text-xs text-slate-900 font-semibold">
                 {selectedIds.length === 1
                   ? '1 participante selecionado'
                   : `${selectedIds.length} participantes selecionados`}
               </p>
-              <p className="text-[11px] text-sky-700">
+              <p className="text-[11px] text-primary-theme-text">
                 Pronto para exclusão em massa no painel de controle
               </p>
             </div>
@@ -1221,7 +1225,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       key={p.id}
                       className={`transition-colors ${
                         isSelected
-                          ? 'bg-sky-50/80 hover:bg-sky-100/70 border-l-4 border-l-sky-500'
+                          ? 'bg-primary-theme-soft hover:bg-primary-theme-light border-l-4 border-l-primary-theme'
                           : 'hover:bg-slate-50/80'
                       }`}
                     >
@@ -1233,7 +1237,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleSelectParticipant(p.id)}
-                            className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                            className="h-4 w-4 rounded border-slate-300 text-primary-theme focus:ring-primary-theme cursor-pointer"
                             aria-label={`Selecionar participante ${p.fullName}`}
                           />
                         </label>
@@ -1248,8 +1252,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </td>
 
                       {/* Matrícula */}
-                      <td className="py-3 px-4 font-mono font-medium text-sky-800">
-                        <span className="bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200/60">
+                      <td className="py-3 px-4 font-mono font-medium text-primary-theme-text">
+                        <span className="bg-primary-theme-soft px-2 py-0.5 rounded-md border border-primary-theme/30">
                           {p.registrationNumber}
                         </span>
                       </td>
@@ -1265,7 +1269,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {/* Evento */}
                       <td className="py-3 px-4 text-slate-700">
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                          <Calendar className="h-3 w-3 text-sky-600 shrink-0" />
+                          <Calendar className="h-3 w-3 text-primary-theme shrink-0" />
                           <span className="truncate max-w-[140px]" title={p.eventName || 'Evento Geral'}>
                             {p.eventName || 'Evento Geral'}
                           </span>

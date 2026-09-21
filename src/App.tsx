@@ -19,7 +19,7 @@ import { RegistrationForm } from './components/RegistrationForm';
 import { AdminPanel } from './components/AdminPanel';
 import { CompanySettingsModal } from './components/CompanySettingsModal';
 import { MobileShareModal } from './components/MobileShareModal';
-import { UserPlus, ShieldCheck, CheckCircle2, Share2, Sparkles } from 'lucide-react';
+import { UserPlus, ShieldCheck, CheckCircle2, Sparkles } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('register');
@@ -121,7 +121,6 @@ export default function App() {
         participants={participants}
         isAdminAuthenticated={isAdminAuthenticated}
         companySettings={companySettings}
-        onOpenMobileShare={() => setIsMobileShareOpen(true)}
         onLogout={handleHeaderLogout}
       />
 
@@ -141,7 +140,6 @@ export default function App() {
                   reloadParticipants();
                 }}
                 companySettings={companySettings}
-                onOpenMobileShare={() => setIsMobileShareOpen(true)}
                 isAdminAuthenticated={isAdminAuthenticated}
                 setIsAdminAuthenticated={handleSetAdminAuth}
                 onNavigateToAdmin={() => setActiveTab('admin')}
@@ -163,7 +161,6 @@ export default function App() {
                 onUpdateParticipants={reloadParticipants}
                 companySettings={companySettings}
                 onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
-                onOpenMobileShare={() => setIsMobileShareOpen(true)}
               />
             </motion.div>
           )}
@@ -199,17 +196,6 @@ export default function App() {
             )}
           </div>
           <span>Painel Admin</span>
-        </button>
-
-        {/* Botão de Compartilhar no mobile */}
-        <button
-          id="mobile-tab-share"
-          type="button"
-          onClick={() => setIsMobileShareOpen(true)}
-          className="flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-        >
-          <Share2 className="h-5 w-5 text-slate-600" />
-          <span>Compartilhar</span>
         </button>
       </div>
 

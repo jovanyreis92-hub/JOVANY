@@ -228,9 +228,9 @@ export const WebNotificationsModal: React.FC<WebNotificationsModalProps> = ({
                   id="btn-send-test-notification"
                   type="button"
                   onClick={handleTest}
-                  className="shrink-0 flex items-center gap-1.5 py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                  className="shrink-0 flex items-center gap-1.5 py-2 px-3 bg-primary-theme-soft hover:opacity-90 text-primary-theme-text border border-primary-theme/30 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
                 >
-                  <Send className="h-3.5 w-3.5 text-sky-600" />
+                  <Send className="h-3.5 w-3.5 text-primary-theme" />
                   <span>{testSent ? 'Enviada!' : 'Enviar Teste'}</span>
                 </button>
               </div>

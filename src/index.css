@@ -95,6 +95,24 @@ body {
   background-color: #020617;
 }
 
+#reader-canvas-box span:not(.custom-scanner-ui),
+#reader-canvas-box select,
+#reader-canvas-box button:not(.custom-scanner-ui),
+#reader-canvas-box div[id*="status"],
+#reader-canvas-box div[id*="header"],
+#reader-canvas-box div[id*="camera"],
+#reader-canvas-box div[id*="dashboard"],
+#reader-canvas-box__dashboard,
+#reader-canvas-box__dashboard_section,
+#reader-canvas-box__dashboard_section_csr,
+#reader-canvas-box__dashboard_section_swaplink,
+#reader-canvas-box__status_span,
+#reader-canvas-box__camera_selection,
+#reader-canvas-box__camera_permission_span,
+#reader-canvas-box a {
+  display: none !important;
+}
+
 #reader-canvas-box video {
   width: 100% !important;
   height: auto !important;

@@ -153,6 +153,9 @@ export function devApiPlugin(): Plugin {
       heartbeat.unref();
 
       app.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith('/api')) {
+          return next();
+        }
         res.header('Access-Control-Allow-Origin', '*');
         res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         res.header(
@@ -166,8 +169,8 @@ export function devApiPlugin(): Plugin {
         next();
       });
 
-      app.use(express.json({ limit: '15mb' }));
-      app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+      app.use('/api', express.json({ limit: '15mb' }));
+      app.use('/api', express.urlencoded({ extended: true, limit: '15mb' }));
 
       // 1. Health check
       app.get('/api/health', (_req, res) => {
@@ -479,7 +482,12 @@ export function devApiPlugin(): Plugin {
         });
       });
 
-      server.middlewares.use(app);
+      server.middlewares.use((req, res, next) => {
+        if (req.url && req.url.startsWith('/api')) {
+          return (app as any)(req, res, next);
+        }
+        return next();
+      });
     },
   };
 }

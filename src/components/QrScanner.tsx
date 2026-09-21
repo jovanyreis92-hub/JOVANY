@@ -557,7 +557,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                 className="p-2 rounded-xl text-xs font-medium border bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
                 title="Trocar câmera"
               >
-                <FlipHorizontal className="h-4 w-4 text-sky-400" />
+                <FlipHorizontal className="h-4 w-4 text-primary-theme" />
                 <span className="hidden sm:inline">Trocar Câmera</span>
               </button>
             </div>
@@ -589,7 +589,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
             {!isScanning && (
               <div className="p-8 text-center text-slate-400 flex flex-col items-center">
                 <div className="h-16 w-16 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-300 mb-4 shadow-sm">
-                  <Camera className="h-8 w-8 text-sky-400" />
+                  <Camera className="h-8 w-8 text-primary-theme" />
                 </div>
                 <p className="text-base font-semibold text-slate-100 mb-1">
                   Câmera Pronta para Leitura
@@ -840,12 +840,12 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                   value={manualMatricula}
                   onChange={(e) => setManualMatricula(e.target.value.replace(/\D/g, ''))}
                   placeholder="Ex: 1001"
-                  className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+                  className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme"
                 />
                 <button
                   id="btn-submit-manual-matricula"
                   type="submit"
-                  className="py-1.5 px-3 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-lg text-xs font-semibold transition-colors shrink-0 cursor-pointer"
+                  className="py-1.5 px-3 btn-primary-action text-white rounded-lg text-xs font-semibold transition-colors shrink-0 cursor-pointer"
                 >
                   Confirmar
                 </button>
@@ -860,7 +860,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                 id="btn-view-admin-from-scanner"
                 type="button"
                 onClick={onNavigateToAdmin}
-                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-sky-600 transition-colors font-medium cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-primary-theme transition-colors font-medium cursor-pointer"
               >
                 <Info className="h-3.5 w-3.5" />
                 <span>Ver lista completa de presença no Painel Administrativo</span>

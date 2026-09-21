@@ -233,7 +233,7 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
                 />
               </div>
               <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                <QrCode className="h-3 w-3 text-sky-600 shrink-0" />
+                <QrCode className="h-3 w-3 text-primary-theme shrink-0" />
                 <span>Atualiza o Código QR vinculado</span>
               </p>
             </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { UserPlus, ShieldCheck, Building2, Share2, LogOut } from 'lucide-react';
+import { UserPlus, ShieldCheck, Building2, LogOut } from 'lucide-react';
 import { ActiveTab, Participant, CompanySettings } from '../types';
 
 interface HeaderProps {
@@ -8,7 +8,6 @@ interface HeaderProps {
   participants: Participant[];
   isAdminAuthenticated: boolean;
   companySettings: CompanySettings;
-  onOpenMobileShare: () => void;
   onLogout: () => void;
 }
 
@@ -18,7 +17,6 @@ export const Header: React.FC<HeaderProps> = ({
   participants,
   isAdminAuthenticated,
   companySettings,
-  onOpenMobileShare,
   onLogout,
 }) => {
 
@@ -73,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Navegação entre Abas e Botão de Compartilhar */}
+          {/* Navegação entre Abas */}
           <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end">
             <nav className="flex items-center gap-1 p-1 bg-slate-800/90 rounded-xl border border-slate-700/80 flex-1 md:flex-none justify-center">
               <button
@@ -107,18 +105,6 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </button>
             </nav>
-
-            {/* Botão de Compartilhar Link de Inscrição */}
-            <button
-              id="btn-header-mobile-share"
-              type="button"
-              onClick={onOpenMobileShare}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 hover:text-white font-semibold text-xs border border-slate-700 transition-all shadow-xs shrink-0 cursor-pointer"
-              title="Abrir QR Code e link para compartilhar formulário de inscrição"
-            >
-              <Share2 className="h-4 w-4 text-primary-theme" />
-              <span className="hidden sm:inline">Compartilhar</span>
-            </button>
 
             {/* Botão Sair no Cabeçalho - Exibido SOMENTE no Painel Admin */}
             {activeTab === 'admin' && (

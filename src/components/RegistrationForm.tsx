@@ -8,7 +8,6 @@ import {
   Sparkles,
   Calendar, 
   MapPin, 
-  Share2, 
   Clock, 
   AlertTriangle, 
   CheckCircle2, 
@@ -25,7 +24,6 @@ import { QrBadgeModal } from './QrBadgeModal';
 interface RegistrationFormProps {
   onParticipantAdded: (participant: Participant) => void;
   companySettings?: CompanySettings;
-  onOpenMobileShare?: () => void;
   isAdminAuthenticated?: boolean;
   setIsAdminAuthenticated?: (auth: boolean) => void;
   onNavigateToAdmin?: () => void;
@@ -34,7 +32,6 @@ interface RegistrationFormProps {
 export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   onParticipantAdded,
   companySettings,
-  onOpenMobileShare,
   isAdminAuthenticated,
   setIsAdminAuthenticated,
   onNavigateToAdmin,
@@ -200,19 +197,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              {onOpenMobileShare && (
-                <button
-                  id="btn-share-registration-form"
-                  type="button"
-                  onClick={onOpenMobileShare}
-                  className="text-xs text-white hover:text-white flex items-center gap-1.5 py-1 px-2.5 rounded-lg transition-colors border cursor-pointer"
-                  style={{ backgroundColor: 'var(--primary-hover)', borderColor: 'var(--primary-color)' }}
-                  title="Compartilhar link de inscrição para celulares e outras redes"
-                >
-                  <Share2 className="h-3.5 w-3.5" />
-                  <span>Compartilhar Link / QR</span>
-                </button>
-              )}
               <button
                 id="btn-fill-example"
                 type="button"

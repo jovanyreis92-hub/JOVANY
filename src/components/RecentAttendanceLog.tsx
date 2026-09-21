@@ -195,7 +195,7 @@ export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
               Nenhuma presença validada até o momento
             </p>
             <p className="text-xs text-slate-500 max-w-sm">
-              Assim que os participantes apresentarem seus crachás no leitor de câmera acima, os eventos de validação serão exibidos aqui instantaneamente com a hora exata.
+              Assim que os participantes realizarem o check-in no leitor QR ou tiverem presença confirmada, os eventos de validação serão exibidos aqui instantaneamente com a hora exata.
             </p>
           </div>
         ) : displayedLog.length === 0 ? (
