@@ -10,7 +10,6 @@ import {
   User, 
   Volume2, 
   VolumeX,
-  FlipHorizontal,
   Info,
   RefreshCw,
   Zap,
@@ -39,7 +38,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [manualMatricula, setManualMatricula] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const facingMode = 'environment';
   const [availableCameras, setAvailableCameras] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
 
@@ -327,18 +326,10 @@ export const QrScanner: React.FC<QrScannerProps> = ({
           c.label.toLowerCase().includes('rear') ||
           c.label.toLowerCase().includes('environment')
         );
-        const frontCam = cameras.find(c => 
-          c.label.toLowerCase().includes('front') || 
-          c.label.toLowerCase().includes('frontal') ||
-          c.label.toLowerCase().includes('user')
-        );
 
-        if (facingMode === 'environment' && backCam) {
+        if (backCam) {
           cameraTarget = backCam.id;
           setSelectedCameraId(backCam.id);
-        } else if (facingMode === 'user' && frontCam) {
-          cameraTarget = frontCam.id;
-          setSelectedCameraId(frontCam.id);
         } else {
           cameraTarget = cameras[0].id;
           setSelectedCameraId(cameras[0].id);
@@ -407,35 +398,6 @@ export const QrScanner: React.FC<QrScannerProps> = ({
       }
     } finally {
       isStartingRef.current = false;
-    }
-  };
-
-  // Alterna câmera frontal / traseira ou entre câmeras disponíveis
-  const handleToggleCamera = async () => {
-    if (availableCameras.length > 1) {
-      const currentIndex = availableCameras.findIndex(c => c.id === selectedCameraId);
-      const nextIndex = (currentIndex + 1) % availableCameras.length;
-      const nextCam = availableCameras[nextIndex];
-      setSelectedCameraId(nextCam.id);
-      if (isScanning) {
-        await stopScanner();
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            startScanner(nextCam.id);
-          }
-        }, 250);
-      }
-    } else {
-      const newFacing = facingMode === 'environment' ? 'user' : 'environment';
-      setFacingMode(newFacing);
-      if (isScanning) {
-        await stopScanner();
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            startScanner();
-          }
-        }, 250);
-      }
     }
   };
 
@@ -548,17 +510,6 @@ export const QrScanner: React.FC<QrScannerProps> = ({
               >
                 {soundEnabled ? <Volume2 className="h-4 w-4 text-emerald-400" /> : <VolumeX className="h-4 w-4" />}
                 <span className="hidden sm:inline">{soundEnabled ? 'Som Ativo' : 'Mudo'}</span>
-              </button>
-
-              <button
-                id="btn-toggle-camera-facing"
-                type="button"
-                onClick={handleToggleCamera}
-                className="p-2 rounded-xl text-xs font-medium border bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
-                title="Trocar câmera"
-              >
-                <FlipHorizontal className="h-4 w-4 text-primary-theme" />
-                <span className="hidden sm:inline">Trocar Câmera</span>
               </button>
             </div>
           </div>
