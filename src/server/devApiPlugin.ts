@@ -5,6 +5,7 @@ import path from 'path';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const PARTICIPANTS_FILE = path.join(DATA_DIR, 'participants.json');
+const PARTICIPANTS_BACKUP_FILE = path.join(DATA_DIR, 'participants.backup.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const EVENTS_FILE = path.join(DATA_DIR, 'events.json');
 
@@ -13,12 +14,14 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Helpers para leitura e escrita em disco
+// Helpers para leitura e escrita segura com atomicidade
 function readJsonFile<T>(filePath: string, fallback: T): T {
   try {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, 'utf-8');
-      return JSON.parse(content) as T;
+      if (content && content.trim().length > 0) {
+        return JSON.parse(content) as T;
+      }
     }
   } catch (err) {
     console.warn(`[DEV-API] Erro ao ler ${filePath}:`, err);
@@ -26,16 +29,61 @@ function readJsonFile<T>(filePath: string, fallback: T): T {
   return fallback;
 }
 
-function writeJsonFile<T>(filePath: string, data: T): void {
+function writeJsonFileAtomic<T>(filePath: string, data: T): void {
+  const tmpPath = `${filePath}.tmp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    const payload = JSON.stringify(data, null, 2);
+    fs.writeFileSync(tmpPath, payload, 'utf-8');
+    fs.renameSync(tmpPath, filePath);
   } catch (err) {
-    console.error(`[DEV-API] Erro ao salvar ${filePath}:`, err);
+    console.error(`[DEV-API] Erro atômico ao salvar ${filePath}:`, err);
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch {}
   }
 }
 
-// Estado em memória sincronizado com arquivos em disco
-let participants: any[] = readJsonFile<any[]>(PARTICIPANTS_FILE, []);
+const writeJsonFile = writeJsonFileAtomic;
+
+function persistParticipantsToDisk(list: any[]): void {
+  try {
+    writeJsonFileAtomic(PARTICIPANTS_FILE, list);
+    if (Array.isArray(list) && list.length > 0) {
+      writeJsonFileAtomic(PARTICIPANTS_BACKUP_FILE, list);
+    }
+  } catch (err) {
+    console.error('[DEV-API] Falha ao persistir participantes:', err);
+  }
+}
+
+// Estado em memória inicializado com fusão segura entre primário e backup
+let initialPrimary = readJsonFile<any[]>(PARTICIPANTS_FILE, []);
+let initialBackup = readJsonFile<any[]>(PARTICIPANTS_BACKUP_FILE, []);
+
+const mergedInitialMap = new Map<string, any>();
+[...initialBackup, ...initialPrimary].forEach((item) => {
+  if (!item) return;
+  const key = item.id || `reg_${item.registrationNumber}_${item.eventId || 'event_1'}`;
+  const existing = mergedInitialMap.get(key);
+  if (!existing) {
+    mergedInitialMap.set(key, item);
+  } else {
+    mergedInitialMap.set(key, {
+      ...existing,
+      ...item,
+      attended: existing.attended || item.attended,
+      attendedAt: existing.attendedAt || item.attendedAt,
+    });
+  }
+});
+
+let participants: any[] = Array.from(mergedInitialMap.values());
+if (participants.length > 0) {
+  persistParticipantsToDisk(participants);
+}
 let companySettings: any = readJsonFile<any>(SETTINGS_FILE, {
   companyName: 'Minha Empresa',
   eventName: 'COZINHA SHOW',
@@ -51,12 +99,12 @@ let companySettings: any = readJsonFile<any>(SETTINGS_FILE, {
 let eventsList: any[] = readJsonFile<any[]>(EVENTS_FILE, [
   {
     id: 'event_1',
-    name: 'Evento Corporativo & Treinamento 2026',
-    date: '2026-09-20',
-    location: 'Auditório Principal - Sede',
-    description: 'Treinamento de integração corporativa e apresentação de metas estratégicas.',
+    name: 'COZINHA SHOW',
+    date: '2026-10-15',
+    location: 'Espaço Cozinha Show',
+    description: 'Evento Cozinha Show - Credenciamento e Presença de Participantes',
     registrationStartDate: '2026-09-01T08:00',
-    registrationEndDate: '2026-09-20T18:00',
+    registrationEndDate: '2026-12-31T23:59',
     active: true,
     createdAt: new Date().toISOString(),
   },
@@ -211,6 +259,21 @@ export function devApiPlugin(): Plugin {
               (p.eventId || 'event_1') === targetEventId
           );
           if (existingSameMatricula) {
+            if (
+              (data.id && existingSameMatricula.id === data.id) ||
+              existingSameMatricula.fullName.trim().toLowerCase() === trimmedName.toLowerCase()
+            ) {
+              if (data.company && (!existingSameMatricula.company || existingSameMatricula.company === 'Não informada')) {
+                existingSameMatricula.company = String(data.company).trim();
+              }
+              if (data.attended && !existingSameMatricula.attended) {
+                existingSameMatricula.attended = true;
+                existingSameMatricula.attendedAt = data.attendedAt || new Date().toISOString();
+              }
+              persistParticipantsToDisk(participants);
+              broadcastSSE('participant_updated', existingSameMatricula);
+              return res.status(200).json({ success: true, participant: existingSameMatricula, merged: true });
+            }
             return res.status(409).json({
               error: `Já existe um participante cadastrado com a matrícula "${trimmedMatricula}" neste evento (${existingSameMatricula.fullName}).`,
             });
@@ -222,6 +285,21 @@ export function devApiPlugin(): Plugin {
               (p.eventId || 'event_1') === targetEventId
           );
           if (existingSameName) {
+            if (
+              (data.id && existingSameName.id === data.id) ||
+              existingSameName.registrationNumber === trimmedMatricula
+            ) {
+              if (data.company && (!existingSameName.company || existingSameName.company === 'Não informada')) {
+                existingSameName.company = String(data.company).trim();
+              }
+              if (data.attended && !existingSameName.attended) {
+                existingSameName.attended = true;
+                existingSameName.attendedAt = data.attendedAt || new Date().toISOString();
+              }
+              persistParticipantsToDisk(participants);
+              broadcastSSE('participant_updated', existingSameName);
+              return res.status(200).json({ success: true, participant: existingSameName, merged: true });
+            }
             return res.status(409).json({
               error: `Já existe um participante cadastrado com o nome "${trimmedName}" neste evento (Matrícula: ${existingSameName.registrationNumber}).`,
             });
@@ -233,14 +311,14 @@ export function devApiPlugin(): Plugin {
             registrationNumber: trimmedMatricula,
             company: data.company ? String(data.company).trim() : 'Não informada',
             eventId: targetEventId,
-            eventName: data.eventName || 'Evento Corporativo',
+            eventName: data.eventName || companySettings.eventName || 'COZINHA SHOW',
             createdAt: data.createdAt || new Date().toISOString(),
             attended: Boolean(data.attended),
             attendedAt: data.attendedAt || null,
           };
 
           participants = [newParticipant, ...participants];
-          writeJsonFile(PARTICIPANTS_FILE, participants);
+          persistParticipantsToDisk(participants);
           broadcastSSE('participant_added', newParticipant);
 
           res.status(201).json({ success: true, participant: newParticipant });
@@ -250,7 +328,7 @@ export function devApiPlugin(): Plugin {
         }
       });
 
-      // 4. Lote de participantes
+      // 4. Lote de participantes com fusão inteligente anti-perda
       app.post('/api/participants/batch', (req, res) => {
         try {
           const incoming: any[] = req.body?.participants;
@@ -259,17 +337,46 @@ export function devApiPlugin(): Plugin {
           }
 
           let addedCount = 0;
+          let modified = false;
+
           incoming.forEach((item) => {
-            if (!item || !item.id) return;
-            const exists = participants.some((p) => p.id === item.id);
-            if (!exists) {
+            if (!item || (!item.id && !item.registrationNumber)) return;
+            const index = participants.findIndex(
+              (p) =>
+                (item.id && p.id === item.id) ||
+                (item.registrationNumber &&
+                  p.registrationNumber === item.registrationNumber &&
+                  (p.eventId || 'event_1') === (item.eventId || 'event_1'))
+            );
+
+            if (index === -1) {
               participants.unshift(item);
               addedCount++;
+              modified = true;
+            } else {
+              const current = participants[index];
+              let updatedItem = false;
+              if (item.attended && !current.attended) {
+                current.attended = true;
+                current.attendedAt = item.attendedAt || new Date().toISOString();
+                updatedItem = true;
+              }
+              if (item.company && (!current.company || current.company === 'Não informada')) {
+                current.company = item.company;
+                updatedItem = true;
+              }
+              if (item.fullName && current.fullName !== item.fullName && item.fullName.length > current.fullName.length) {
+                current.fullName = item.fullName;
+                updatedItem = true;
+              }
+              if (updatedItem) {
+                modified = true;
+              }
             }
           });
 
-          if (addedCount > 0) {
-            writeJsonFile(PARTICIPANTS_FILE, participants);
+          if (modified) {
+            persistParticipantsToDisk(participants);
             broadcastSSE('init', {
               participants,
               settings: companySettings,
@@ -298,7 +405,7 @@ export function devApiPlugin(): Plugin {
         };
 
         participants[index] = updated;
-        writeJsonFile(PARTICIPANTS_FILE, participants);
+        persistParticipantsToDisk(participants);
         broadcastSSE('participant_updated', updated);
 
         res.json({ success: true, participant: updated });
@@ -315,7 +422,7 @@ export function devApiPlugin(): Plugin {
         participant.attended = !participant.attended;
         participant.attendedAt = participant.attended ? new Date().toISOString() : null;
 
-        writeJsonFile(PARTICIPANTS_FILE, participants);
+        persistParticipantsToDisk(participants);
         broadcastSSE('attendance_updated', participant);
         if (participant.attended) {
           broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt });
@@ -364,7 +471,7 @@ export function devApiPlugin(): Plugin {
         participant.attended = attended !== undefined ? Boolean(attended) : true;
         participant.attendedAt = participant.attended ? (attendedAt || new Date().toISOString()) : null;
 
-        writeJsonFile(PARTICIPANTS_FILE, participants);
+        persistParticipantsToDisk(participants);
         broadcastSSE('attendance_updated', participant);
         if (participant.attended) {
           broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt });
@@ -385,7 +492,7 @@ export function devApiPlugin(): Plugin {
         participants = participants.filter((p) => p.id !== id);
 
         if (participants.length !== initialLength) {
-          writeJsonFile(PARTICIPANTS_FILE, participants);
+          persistParticipantsToDisk(participants);
           broadcastSSE('participant_deleted', id);
         }
 
@@ -404,7 +511,7 @@ export function devApiPlugin(): Plugin {
         participants = participants.filter((p) => !idsSet.has(p.id));
 
         if (participants.length !== initialLength) {
-          writeJsonFile(PARTICIPANTS_FILE, participants);
+          persistParticipantsToDisk(participants);
           broadcastSSE('multiple_deleted', ids);
         }
 
@@ -415,7 +522,7 @@ export function devApiPlugin(): Plugin {
       app.post('/api/participants/reset', (req, res) => {
         const newItems = Array.isArray(req.body?.participants) ? req.body.participants : [];
         participants = newItems;
-        writeJsonFile(PARTICIPANTS_FILE, participants);
+        persistParticipantsToDisk(participants);
         broadcastSSE('reset', participants);
         res.json({ success: true, count: participants.length });
       });

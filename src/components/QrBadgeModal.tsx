@@ -100,7 +100,7 @@ export const QrBadgeModal: React.FC<QrBadgeModalProps> = ({
               </div>
             )}
             <span className="text-[11px] text-slate-300 font-medium truncate">
-              {companySettings.eventName || 'Evento Corporativo'}
+              {participant.eventName || companySettings.eventName || 'COZINHA SHOW'}
             </span>
           </div>
 

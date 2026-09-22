@@ -772,12 +772,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <ShieldCheck className="h-3.5 w-3.5" />
               <span>Acesso Liberado</span>
             </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-300">
+              <Calendar className="h-3.5 w-3.5 text-amber-700" />
+              <span>Evento Destinado: <strong>{companySettings?.eventName || 'COZINHA SHOW'}</strong></span>
+            </span>
           </div>
           <h2 className="text-2xl font-bold text-slate-900 mt-1">
             Painel de Controle de Participantes
           </h2>
           <p className="text-xs text-slate-500">
-            Gerencie inscrições, presenças em tempo real e exporte relatórios oficiais.
+            Gerencie inscrições, presenças em tempo real e relatórios oficiais do evento <strong>{companySettings?.eventName || 'COZINHA SHOW'}</strong>.
           </p>
         </div>
 
@@ -1023,7 +1027,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         presentCount={chartPresentCount}
         absentCount={chartAbsentCount}
         total={chartTotal}
-        eventName={selectedEventObj?.name}
+        eventName={selectedEventObj?.name || companySettings?.eventName || 'COZINHA SHOW'}
       />
 
       {/* Log de Eventos de Entrada Recente no Painel Administrativo */}

@@ -73,7 +73,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
   onSaved,
 }) => {
   const [companyName, setCompanyName] = useState(currentSettings.companyName || 'Minha Empresa');
-  const [eventName, setEventName] = useState(currentSettings.eventName || 'Evento Corporativo');
+  const [eventName, setEventName] = useState(currentSettings.eventName || 'COZINHA SHOW');
   const [creatorName, setCreatorName] = useState(currentSettings.creatorName || 'Jovany Reis');
   const [creatorSignature, setCreatorSignature] = useState(
     currentSettings.creatorSignature || 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições'
@@ -267,7 +267,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
     const updated: CompanySettings = {
       ...currentSettings,
       companyName: companyName.trim() || 'Minha Empresa',
-      eventName: eventName.trim() || 'Evento Corporativo',
+      eventName: eventName.trim() || 'COZINHA SHOW',
       logoUrl: logoUrl,
       adminUsername: finalUsername,
       adminPassword: finalPassword,
@@ -699,7 +699,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
               >
                 <div>
                   <div className="text-xs font-bold text-white">
-                    {companyName || 'Minha Empresa'} — {eventName || 'Evento Corporativo'}
+                    {companyName || 'Minha Empresa'} — {eventName || 'COZINHA SHOW'}
                   </div>
                   <div className="text-[11px] text-slate-300 mt-0.5">
                     Exemplo: Carlos Eduardo Silva (Matrícula: 1001)

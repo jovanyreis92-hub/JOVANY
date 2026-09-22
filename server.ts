@@ -9,6 +9,7 @@ const HOST = '0.0.0.0';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const PARTICIPANTS_FILE = path.join(DATA_DIR, 'participants.json');
+const PARTICIPANTS_BACKUP_FILE = path.join(DATA_DIR, 'participants.backup.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const EVENTS_FILE = path.join(DATA_DIR, 'events.json');
 
@@ -17,7 +18,7 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Helpers para leitura e escrita em disco
+// Helpers para leitura e escrita em disco resiliente e atômica
 function readJsonFile<T>(filePath: string, fallback: T): T {
   try {
     if (fs.existsSync(filePath)) {
@@ -32,14 +33,52 @@ function readJsonFile<T>(filePath: string, fallback: T): T {
 
 function writeJsonFile<T>(filePath: string, data: T): void {
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    const tempPath = `${filePath}.tmp_${Date.now()}`;
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tempPath, filePath);
   } catch (err) {
-    console.error(`[SERVER] Erro ao salvar ${filePath}:`, err);
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (writeErr) {
+      console.error(`[SERVER] Erro crítico ao salvar ${filePath}:`, writeErr);
+    }
   }
 }
 
-// Estado em memória sincronizado com arquivos em disco
-let participants: any[] = readJsonFile<any[]>(PARTICIPANTS_FILE, []);
+// Salva participantes de forma atômica no arquivo principal e no backup de redundância
+function persistParticipantsToDisk(parts: any[]): void {
+  writeJsonFile(PARTICIPANTS_FILE, parts);
+  writeJsonFile(PARTICIPANTS_BACKUP_FILE, parts);
+}
+
+// Recupera dados combinando o arquivo primário com o backup de segurança para nunca perder cadastros
+const primaryStored = readJsonFile<any[]>(PARTICIPANTS_FILE, []);
+const backupStored = readJsonFile<any[]>(PARTICIPANTS_BACKUP_FILE, []);
+const mergedMap = new Map<string, any>();
+
+// Une os registros por ID ou por matrícula+evento
+[...backupStored, ...primaryStored].forEach((p) => {
+  if (!p) return;
+  const key = p.id || `${p.registrationNumber}_${p.eventId || 'event_1'}`;
+  const existing = mergedMap.get(key);
+  if (!existing) {
+    mergedMap.set(key, p);
+  } else {
+    // Se o registro existente ou o novo tiver presença confirmada, preserva a presença
+    const attended = Boolean(existing.attended || p.attended);
+    const attendedAt = existing.attendedAt || p.attendedAt || (attended ? new Date().toISOString() : null);
+    mergedMap.set(key, {
+      ...existing,
+      ...p,
+      attended,
+      attendedAt,
+    });
+  }
+});
+
+let participants: any[] = Array.from(mergedMap.values());
+// Atualiza os dois arquivos no disco para garantir paridade imediata
+persistParticipantsToDisk(participants);
 let companySettings: any = readJsonFile<any>(SETTINGS_FILE, {
   companyName: 'Minha Empresa',
   eventName: 'COZINHA SHOW',
@@ -55,12 +94,12 @@ let companySettings: any = readJsonFile<any>(SETTINGS_FILE, {
 let eventsList: any[] = readJsonFile<any[]>(EVENTS_FILE, [
   {
     id: 'event_1',
-    name: 'Evento Corporativo & Treinamento 2026',
-    date: '2026-09-20',
-    location: 'Auditório Principal - Sede',
-    description: 'Treinamento de integração corporativa e apresentação de metas estratégicas.',
+    name: 'COZINHA SHOW',
+    date: '2026-10-15',
+    location: 'Espaço Cozinha Show',
+    description: 'Evento Cozinha Show - Credenciamento e Presença de Participantes',
     registrationStartDate: '2026-09-01T08:00',
-    registrationEndDate: '2026-09-20T18:00',
+    registrationEndDate: '2026-12-31T23:59',
     active: true,
     createdAt: new Date().toISOString(),
   },
@@ -142,13 +181,19 @@ function findParticipantByCodeOrInput(input: any): any | null {
 async function startServer() {
   // Configuração global de CORS para aceitar requisições de qualquer celular, rede ou origem
   app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header(
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader(
       'Access-Control-Allow-Headers',
       'Origin, X-Requested-With, Content-Type, Accept, Cache-Control, Pragma, X-Admin-Auth, Authorization'
     );
-    res.header('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(200);
     }
@@ -210,9 +255,21 @@ async function startServer() {
           (p.eventId || 'event_1') === targetEventId
       );
       if (existingSameMatricula) {
-        // Se for o mesmo id, apenas atualiza
-        if (data.id && existingSameMatricula.id === data.id) {
-          return res.status(200).json({ success: true, participant: existingSameMatricula });
+        // Se for o mesmo participante (mesmo id ou mesmo nome), atualiza os dados e retorna sucesso idempotente
+        if (
+          (data.id && existingSameMatricula.id === data.id) ||
+          existingSameMatricula.fullName.trim().toLowerCase() === trimmedName.toLowerCase()
+        ) {
+          if (data.company && (!existingSameMatricula.company || existingSameMatricula.company === 'Não informada')) {
+            existingSameMatricula.company = String(data.company).trim();
+          }
+          if (data.attended && !existingSameMatricula.attended) {
+            existingSameMatricula.attended = true;
+            existingSameMatricula.attendedAt = data.attendedAt || new Date().toISOString();
+          }
+          persistParticipantsToDisk(participants);
+          broadcastSSE('participant_updated', existingSameMatricula);
+          return res.status(200).json({ success: true, participant: existingSameMatricula, merged: true });
         }
         return res.status(409).json({
           error: `Já existe um participante cadastrado com a matrícula "${trimmedMatricula}" neste evento (${existingSameMatricula.fullName}).`,
@@ -226,8 +283,20 @@ async function startServer() {
           (p.eventId || 'event_1') === targetEventId
       );
       if (existingSameName) {
-        if (data.id && existingSameName.id === data.id) {
-          return res.status(200).json({ success: true, participant: existingSameName });
+        if (
+          (data.id && existingSameName.id === data.id) ||
+          existingSameName.registrationNumber === trimmedMatricula
+        ) {
+          if (data.company && (!existingSameName.company || existingSameName.company === 'Não informada')) {
+            existingSameName.company = String(data.company).trim();
+          }
+          if (data.attended && !existingSameName.attended) {
+            existingSameName.attended = true;
+            existingSameName.attendedAt = data.attendedAt || new Date().toISOString();
+          }
+          persistParticipantsToDisk(participants);
+          broadcastSSE('participant_updated', existingSameName);
+          return res.status(200).json({ success: true, participant: existingSameName, merged: true });
         }
         return res.status(409).json({
           error: `Já existe um participante cadastrado com o nome "${trimmedName}" neste evento (Matrícula: ${existingSameName.registrationNumber}).`,
@@ -240,14 +309,14 @@ async function startServer() {
         registrationNumber: trimmedMatricula,
         company: data.company ? String(data.company).trim() : 'Não informada',
         eventId: targetEventId,
-        eventName: data.eventName || 'Evento Corporativo',
+        eventName: data.eventName || companySettings.eventName || 'COZINHA SHOW',
         createdAt: data.createdAt || new Date().toISOString(),
         attended: Boolean(data.attended),
         attendedAt: data.attendedAt || null,
       };
 
       participants = [newParticipant, ...participants];
-      writeJsonFile(PARTICIPANTS_FILE, participants);
+      persistParticipantsToDisk(participants);
       broadcastSSE('participant_added', newParticipant);
 
       console.log(`[SERVER] Novo participante recebido: ${newParticipant.fullName} (Matrícula: ${newParticipant.registrationNumber})`);
@@ -258,7 +327,7 @@ async function startServer() {
     }
   });
 
-  // 4. Lote de participantes
+  // 4. Lote de participantes com união inteligente e preservação de presenças
   app.post('/api/participants/batch', (req, res) => {
     try {
       const incoming: any[] = req.body?.participants;
@@ -267,17 +336,46 @@ async function startServer() {
       }
 
       let addedCount = 0;
+      let modified = false;
+
       incoming.forEach((item) => {
-        if (!item || !item.id) return;
-        const exists = participants.some((p) => p.id === item.id);
-        if (!exists) {
+        if (!item || (!item.id && !item.registrationNumber)) return;
+        const index = participants.findIndex(
+          (p) =>
+            (item.id && p.id === item.id) ||
+            (item.registrationNumber &&
+              p.registrationNumber === item.registrationNumber &&
+              (p.eventId || 'event_1') === (item.eventId || 'event_1'))
+        );
+
+        if (index === -1) {
           participants.unshift(item);
           addedCount++;
+          modified = true;
+        } else {
+          const current = participants[index];
+          let updatedItem = false;
+          if (item.attended && !current.attended) {
+            current.attended = true;
+            current.attendedAt = item.attendedAt || new Date().toISOString();
+            updatedItem = true;
+          }
+          if (item.company && (!current.company || current.company === 'Não informada')) {
+            current.company = item.company;
+            updatedItem = true;
+          }
+          if (item.fullName && current.fullName !== item.fullName && item.fullName.length > current.fullName.length) {
+            current.fullName = item.fullName;
+            updatedItem = true;
+          }
+          if (updatedItem) {
+            modified = true;
+          }
         }
       });
 
-      if (addedCount > 0) {
-        writeJsonFile(PARTICIPANTS_FILE, participants);
+      if (modified) {
+        persistParticipantsToDisk(participants);
         broadcastSSE('init', {
           participants,
           settings: companySettings,
@@ -306,7 +404,7 @@ async function startServer() {
     };
 
     participants[index] = updated;
-    writeJsonFile(PARTICIPANTS_FILE, participants);
+    persistParticipantsToDisk(participants);
     broadcastSSE('participant_updated', updated);
 
     res.json({ success: true, participant: updated });
@@ -323,7 +421,7 @@ async function startServer() {
     participant.attended = !participant.attended;
     participant.attendedAt = participant.attended ? new Date().toISOString() : null;
 
-    writeJsonFile(PARTICIPANTS_FILE, participants);
+    persistParticipantsToDisk(participants);
     broadcastSSE('attendance_updated', participant);
     if (participant.attended) {
       broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt });
@@ -372,7 +470,7 @@ async function startServer() {
     participant.attended = attended !== undefined ? Boolean(attended) : true;
     participant.attendedAt = participant.attended ? (attendedAt || new Date().toISOString()) : null;
 
-    writeJsonFile(PARTICIPANTS_FILE, participants);
+    persistParticipantsToDisk(participants);
     broadcastSSE('attendance_updated', participant);
     if (participant.attended) {
       broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt });
@@ -394,7 +492,7 @@ async function startServer() {
     participants = participants.filter((p) => p.id !== id);
 
     if (participants.length !== initialLength) {
-      writeJsonFile(PARTICIPANTS_FILE, participants);
+      persistParticipantsToDisk(participants);
       broadcastSSE('participant_deleted', id);
     }
 
@@ -413,7 +511,7 @@ async function startServer() {
     participants = participants.filter((p) => !idsSet.has(p.id));
 
     if (participants.length !== initialLength) {
-      writeJsonFile(PARTICIPANTS_FILE, participants);
+      persistParticipantsToDisk(participants);
       broadcastSSE('multiple_deleted', ids);
     }
 
@@ -424,7 +522,7 @@ async function startServer() {
   app.post('/api/participants/reset', (req, res) => {
     const newItems = Array.isArray(req.body?.participants) ? req.body.participants : [];
     participants = newItems;
-    writeJsonFile(PARTICIPANTS_FILE, participants);
+    persistParticipantsToDisk(participants);
     broadcastSSE('reset', participants);
     res.json({ success: true, count: participants.length });
   });

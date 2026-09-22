@@ -1,7 +1,7 @@
 import { Participant, CompanySettings, EventItem, UserAccount, UserRole } from '../types';
 import { getEventRegistrationStatus } from './eventHelper';
 import { autoCorrectAndAccent, isValidFullName, normalizeNameForComparison } from './textCorrector';
-import { SHARED_CLOUD_APP_URL } from './urlHelper';
+import { SHARED_CLOUD_APP_URL, CURRENT_DEV_APP_URL } from './urlHelper';
 
 const STORAGE_KEY = 'qr_event_participants_v1';
 const COMPANY_KEY = 'qr_event_company_settings_v1';
@@ -11,7 +11,7 @@ const CURRENT_USER_KEY = 'qr_current_user_v2';
 
 export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   companyName: 'Minha Empresa',
-  eventName: 'Evento Corporativo & Treinamento 2026',
+  eventName: 'COZINHA SHOW',
   logoUrl: null,
   adminUsername: 'admin',
   adminPassword: '1234',
@@ -26,25 +26,14 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
 export const INITIAL_EVENTS: EventItem[] = [
   {
     id: 'event_1',
-    name: 'Evento Corporativo & Treinamento 2026',
-    date: '2026-09-20',
-    location: 'Auditório Principal - Sede',
-    description: 'Treinamento de integração corporativa e apresentação de metas estratégicas.',
+    name: 'COZINHA SHOW',
+    date: '2026-10-15',
+    location: 'Espaço Cozinha Show',
+    description: 'Evento Cozinha Show - Credenciamento e Presença de Participantes',
     registrationStartDate: '2026-09-01T08:00',
-    registrationEndDate: '2026-09-20T18:00',
+    registrationEndDate: '2026-12-31T23:59',
     active: true,
     createdAt: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
-  },
-  {
-    id: 'event_2',
-    name: 'Workshop de Tecnologia & Inovação',
-    date: '2026-10-05',
-    location: 'Sala de Conferências A',
-    description: 'Capacitação prática em ferramentas digitais e inteligência artificial aplicada.',
-    registrationStartDate: '2026-09-10T09:00',
-    registrationEndDate: '2026-10-04T23:59',
-    active: false,
-    createdAt: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
   },
 ];
 
@@ -55,7 +44,7 @@ export const INITIAL_PARTICIPANTS: Participant[] = [
     registrationNumber: '1001',
     company: 'Tech Solutions Brasil',
     eventId: 'event_1',
-    eventName: 'Evento Corporativo & Treinamento 2026',
+    eventName: 'COZINHA SHOW',
     createdAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
     attended: true,
     attendedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
@@ -66,7 +55,7 @@ export const INITIAL_PARTICIPANTS: Participant[] = [
     registrationNumber: '1002',
     company: 'Inovação Digital Ltda',
     eventId: 'event_1',
-    eventName: 'Evento Corporativo & Treinamento 2026',
+    eventName: 'COZINHA SHOW',
     createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
     attended: false,
     attendedAt: null,
@@ -77,7 +66,7 @@ export const INITIAL_PARTICIPANTS: Participant[] = [
     registrationNumber: '1003',
     company: 'PetroSoft Engenharia',
     eventId: 'event_1',
-    eventName: 'Evento Corporativo & Treinamento 2026',
+    eventName: 'COZINHA SHOW',
     createdAt: new Date(Date.now() - 3600000 * 18).toISOString(),
     attended: true,
     attendedAt: new Date(Date.now() - 3600000 * 1).toISOString(),
@@ -87,8 +76,8 @@ export const INITIAL_PARTICIPANTS: Participant[] = [
     fullName: 'Juliana Beatriz Santos',
     registrationNumber: '1004',
     company: 'Global Logística',
-    eventId: 'event_2',
-    eventName: 'Workshop de Tecnologia & Inovação',
+    eventId: 'event_1',
+    eventName: 'COZINHA SHOW',
     createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
     attended: false,
     attendedAt: null,
@@ -98,8 +87,8 @@ export const INITIAL_PARTICIPANTS: Participant[] = [
     fullName: 'Lucas Gabriel Oliveira',
     registrationNumber: '1005',
     company: 'Nexus Consultoria',
-    eventId: 'event_2',
-    eventName: 'Workshop de Tecnologia & Inovação',
+    eventId: 'event_1',
+    eventName: 'COZINHA SHOW',
     createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
     attended: false,
     attendedAt: null,
@@ -132,10 +121,15 @@ export function getCompanySettings(): CompanySettings {
       return DEFAULT_COMPANY_SETTINGS;
     }
     const parsed = JSON.parse(raw);
+    const eventName =
+      parsed.eventName === 'Evento Corporativo & Treinamento 2026' || !parsed.eventName
+        ? 'COZINHA SHOW'
+        : parsed.eventName;
     return {
       ...DEFAULT_COMPANY_SETTINGS,
       adminUsername: parsed.adminUsername || 'admin',
       ...parsed,
+      eventName,
     };
   } catch (e) {
     console.error('Erro ao obter configurações da empresa:', e);
@@ -638,7 +632,25 @@ export function getStoredEvents(): EventItem[] {
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      const filtered = parsed.filter(
+        (evt) =>
+          evt.id !== 'event_2' &&
+          evt.name !== 'Workshop de Tecnologia & Inovação' &&
+          !evt.name?.toLowerCase().includes('workshop de tecnologia')
+      );
+      const migrated = filtered.map((evt) => {
+        if (evt.id === 'event_1' && (evt.name === 'Evento Corporativo & Treinamento 2026' || evt.name === 'Evento Corporativo')) {
+          return {
+            ...evt,
+            name: 'COZINHA SHOW',
+            location: 'Espaço Cozinha Show',
+            description: 'Evento Cozinha Show - Credenciamento e Presença de Participantes',
+            registrationEndDate: '2026-12-31T23:59',
+          };
+        }
+        return evt;
+      });
+      return migrated.length > 0 ? migrated : INITIAL_EVENTS;
     }
     return INITIAL_EVENTS;
   } catch (err) {
@@ -809,24 +821,150 @@ export function deleteEvent(id: string): { success: boolean; error?: string } {
   return { success: true };
 }
 
+export const MASTER_BACKUP_STORAGE_KEY = 'qr_event_participants_master_backup_v2';
+
+/**
+ * Função de União e Fusão Inteligente de Participantes (Anti-perda de dados)
+ * Garante que cadastros feitos em qualquer celular ou computador sejam mantidos
+ * e que presenças confirmadas nunca sejam revertidas por clientes desatualizados.
+ */
+export function mergeParticipantLists(
+  baseList: Participant[],
+  incomingList: Participant[]
+): {
+  merged: Participant[];
+  addedCount: number;
+  newForServer: Participant[];
+  hasAttendanceChanges: boolean;
+} {
+  const normDigits = (s?: string) => (s || '').replace(/\D/g, '');
+
+  const map = new Map<string, Participant>();
+  const idToKey = new Map<string, string>();
+
+  // 1. Carrega os itens da baseList
+  baseList.forEach((item) => {
+    if (!item) return;
+    const digits = normDigits(item.registrationNumber);
+    const event = item.eventId || 'event_1';
+    const key = digits ? `reg_${digits}_${event}` : `id_${item.id}`;
+    map.set(key, { ...item });
+    if (item.id) {
+      idToKey.set(item.id, key);
+    }
+  });
+
+  let addedCount = 0;
+  let hasAttendanceChanges = false;
+
+  // 2. Itera sobre a lista de entrada e funde inteligentemente
+  incomingList.forEach((incoming) => {
+    if (!incoming) return;
+    const digits = normDigits(incoming.registrationNumber);
+    const event = incoming.eventId || 'event_1';
+    let key = digits ? `reg_${digits}_${event}` : '';
+    if (!key && incoming.id && idToKey.has(incoming.id)) {
+      key = idToKey.get(incoming.id)!;
+    }
+    if (!key && incoming.id) {
+      key = `id_${incoming.id}`;
+    }
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...incoming });
+      if (incoming.id) idToKey.set(incoming.id, key);
+      addedCount++;
+    } else {
+      let attended = existing.attended || incoming.attended;
+      let attendedAt = existing.attendedAt;
+      if (incoming.attended && (!existing.attended || !existing.attendedAt)) {
+        attended = true;
+        attendedAt = incoming.attendedAt || new Date().toISOString();
+        hasAttendanceChanges = true;
+      }
+      const company = (incoming.company && incoming.company !== 'Não informada')
+        ? incoming.company
+        : existing.company;
+      const eventName = incoming.eventName || existing.eventName;
+      const fullName = (incoming.fullName && incoming.fullName.length > (existing.fullName || '').length)
+        ? incoming.fullName
+        : existing.fullName;
+
+      map.set(key, {
+        ...existing,
+        ...incoming,
+        id: existing.id || incoming.id,
+        fullName,
+        company,
+        eventName,
+        attended,
+        attendedAt,
+      });
+    }
+  });
+
+  const merged = Array.from(map.values()).sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  // 3. Detecta participantes que estão na base local mas faltam na lista recebida
+  const incomingSet = new Set<string>();
+  incomingList.forEach((inc) => {
+    if (inc.id) incomingSet.add(inc.id);
+    const digits = normDigits(inc.registrationNumber);
+    if (digits) incomingSet.add(`reg_${digits}_${inc.eventId || 'event_1'}`);
+  });
+
+  const newForServer = baseList.filter((base) => {
+    if (base.id && incomingSet.has(base.id)) return false;
+    const digits = normDigits(base.registrationNumber);
+    if (digits && incomingSet.has(`reg_${digits}_${base.eventId || 'event_1'}`)) return false;
+    return true;
+  });
+
+  return {
+    merged,
+    addedCount,
+    newForServer,
+    hasAttendanceChanges,
+  };
+}
+
 export function getStoredParticipants(): Participant[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_PARTICIPANTS));
-      return INITIAL_PARTICIPANTS;
+      // Tenta recuperar do backup seguro caso o cache principal tenha sido temporariamente limpo
+      const backupRaw = localStorage.getItem(MASTER_BACKUP_STORAGE_KEY);
+      if (backupRaw) {
+        try {
+          const backupList = JSON.parse(backupRaw);
+          if (Array.isArray(backupList) && backupList.length > 0) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(backupList));
+            return backupList;
+          }
+        } catch {}
+      }
+      return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : INITIAL_PARTICIPANTS;
+    return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
     console.error('Erro ao ler participantes do localStorage:', err);
-    return INITIAL_PARTICIPANTS;
+    return [];
   }
 }
 
 export function saveParticipants(participants: Participant[], broadcastLocal = true): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(participants));
+    // Salva cópia imediata no backup persistente
+    if (participants.length > 0) {
+      localStorage.setItem(MASTER_BACKUP_STORAGE_KEY, JSON.stringify(participants));
+    }
     if (broadcastLocal) {
       window.dispatchEvent(new Event('participants-updated'));
     }
@@ -918,7 +1056,7 @@ export async function addParticipant(
   const activeEvt = getActiveEvent();
   const targetEventId = data.eventId || activeEvt?.id || 'event_1';
   const matchedEvent = allEvents.find((e) => e.id === targetEventId) || activeEvt;
-  const targetEventName = data.eventName || matchedEvent?.name || 'Evento Corporativo';
+  const targetEventName = data.eventName || matchedEvent?.name || 'COZINHA SHOW';
 
   // Validação estrita do prazo de validade para cadastro do evento
   if (matchedEvent) {
@@ -1011,23 +1149,28 @@ export async function addParticipant(
       setSyncStatus('connected');
 
       // Replicar imediatamente para nuvem cruzada (garante recebimento em celulares em 4G/5G/todas as redes)
-      const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-      const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-      if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
-        fetch(`${targetCloudUrl}/api/participants`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: serverParticipant.id,
-            fullName: trimmedName,
-            registrationNumber: trimmedMatricula,
-            company: trimmedCompany,
-            eventId: targetEventId,
-            eventName: targetEventName,
-            createdAt: serverParticipant.createdAt,
-            adminAuth: true,
-          }),
-        }).catch(() => {});
+      if (typeof window !== 'undefined') {
+        const currentOrigin = window.location.origin.replace(/\/$/, '');
+        const devUrl = (CURRENT_DEV_APP_URL || '').replace(/\/$/, '');
+        const preUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+        const destinations = [devUrl, preUrl].filter((u) => u && u !== currentOrigin);
+
+        destinations.forEach((destUrl) => {
+          fetch(`${destUrl}/api/participants`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: serverParticipant.id,
+              fullName: trimmedName,
+              registrationNumber: trimmedMatricula,
+              company: trimmedCompany,
+              eventId: targetEventId,
+              eventName: targetEventName,
+              createdAt: serverParticipant.createdAt,
+              adminAuth: true,
+            }),
+          }).catch(() => {});
+        });
       }
 
       return { success: true, participant: serverParticipant };
@@ -1545,9 +1688,25 @@ export async function syncWithServer(): Promise<void> {
     ]);
 
     if (partRes.ok) {
-      const serverParts = await partRes.json();
+      const serverParts: Participant[] = await partRes.json();
       if (Array.isArray(serverParts)) {
-        saveParticipants(serverParts);
+        const localParts = getStoredParticipants();
+        const { merged, newForServer, addedCount, hasAttendanceChanges } = mergeParticipantLists(localParts, serverParts);
+
+        saveParticipants(merged, false);
+
+        // Se tínhamos participantes cadastrados localmente que faltam no servidor, envia ao servidor imediatamente
+        if (newForServer.length > 0) {
+          fetch('/api/participants/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participants: newForServer }),
+          }).catch((err) => console.warn('Erro ao sincronizar participantes locais para o servidor:', err));
+        }
+
+        if (addedCount > 0 || hasAttendanceChanges || merged.length !== localParts.length) {
+          window.dispatchEvent(new Event('participants-updated'));
+        }
       }
     }
 
@@ -1567,79 +1726,64 @@ export async function syncWithServer(): Promise<void> {
       }
     }
 
-    // Sincronização em nuvem cruzada: se estiver rodando no dev studio (ais-dev) ou em rede local,
-    // sincroniza com a URL pública compartilhada (ais-pre) para capturar cadastros feitos por participantes em 4G/5G
+    // Sincronização em nuvem cruzada: se houver outro endpoint na nuvem (ais-dev ou ais-pre),
+    // realiza ponte bidirecional para capturar cadastros feitos por participantes em 4G/5G ou outras redes
     if (typeof window !== 'undefined') {
-      const currentOrigin = window.location.origin;
-      const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-      if (targetCloudUrl && currentOrigin !== targetCloudUrl) {
+      const currentOrigin = window.location.origin.replace(/\/$/, '');
+      const devUrl = (CURRENT_DEV_APP_URL || '').replace(/\/$/, '');
+      const preUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+      const destinations = [devUrl, preUrl].filter((u) => u && u !== currentOrigin);
+
+      for (const destUrl of destinations) {
         try {
-          const cloudRes = await fetch(`${targetCloudUrl}/api/participants?_t=${timestamp}`, {
+          const cloudRes = await fetch(`${destUrl}/api/participants?_t=${timestamp}`, {
             cache: 'no-store',
             headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
           });
           if (cloudRes.ok) {
             const cloudParts: Participant[] = await cloudRes.json();
             if (Array.isArray(cloudParts)) {
-              const localParts = getStoredParticipants();
-              // 1. Novos participantes do cloud que não estão no local
-              const newFromCloud = cloudParts.filter((cp) => !localParts.some((lp) => lp.id === cp.id));
-              let updatedLocal = [...localParts];
-              let localModified = false;
+              const currentLocal = getStoredParticipants();
+              const { merged, newForServer, addedCount, hasAttendanceChanges } = mergeParticipantLists(currentLocal, cloudParts);
 
-              if (newFromCloud.length > 0) {
-                updatedLocal = [...newFromCloud, ...updatedLocal];
-                localModified = true;
-                fetch('/api/participants/batch', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ participants: newFromCloud }),
-                }).catch(() => {});
-
-                newFromCloud.forEach((p) => {
-                  window.dispatchEvent(new CustomEvent('participant-received', { detail: p }));
-                });
+              if (addedCount > 0 || hasAttendanceChanges || merged.length !== currentLocal.length) {
+                saveParticipants(merged);
               }
 
-              // 2. Participantes locais que faltam no cloud
-              const missingInCloud = localParts.filter((lp) => !cloudParts.some((cp) => cp.id === lp.id));
+              // Participantes locais que faltam na nuvem de destino
+              const missingInCloud = merged.filter(
+                (lp) => !cloudParts.some((cp) => cp.id === lp.id || (cp.registrationNumber === lp.registrationNumber && (cp.eventId || 'event_1') === (lp.eventId || 'event_1')))
+              );
               if (missingInCloud.length > 0) {
-                fetch(`${targetCloudUrl}/api/participants/batch`, {
+                fetch(`${destUrl}/api/participants/batch`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ participants: missingInCloud }),
                 }).catch(() => {});
               }
 
-              // 3. Sincronização bidirecional de PRESENÇA (QR Code lido na nuvem ou no local)
+              // Participantes da nuvem que faltam no servidor local
+              if (newForServer.length > 0) {
+                fetch('/api/participants/batch', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ participants: newForServer }),
+                }).catch(() => {});
+
+                newForServer.forEach((p) => {
+                  window.dispatchEvent(new CustomEvent('participant-received', { detail: p }));
+                });
+              }
+
+              // Sincronização bidirecional de presenças
               cloudParts.forEach((cp) => {
-                const target = updatedLocal.find((lp) => lp.id === cp.id);
-                if (target) {
-                  // Se o cloud confirmou presença e o local ainda não tinha
-                  if (cp.attended && !target.attended) {
+                if (cp.attended) {
+                  const target = merged.find((p) => p.id === cp.id || p.registrationNumber === cp.registrationNumber);
+                  if (target && !target.attended) {
                     target.attended = true;
-                    target.attendedAt = cp.attendedAt;
-                    localModified = true;
-
-                    // Atualiza o servidor local também
+                    target.attendedAt = cp.attendedAt || new Date().toISOString();
+                    saveParticipants(merged);
                     fetch('/api/participants/attendance', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        id: cp.id,
-                        attended: true,
-                        attendedAt: cp.attendedAt,
-                      }),
-                    }).catch(() => {});
-
-                    window.dispatchEvent(
-                      new CustomEvent('attendance-confirmed', {
-                        detail: { participant: target, timestamp: target.attendedAt },
-                      })
-                    );
-                  } else if (target.attended && !cp.attended) {
-                    // Se o local confirmou presença e o cloud ainda não tinha, envia para a nuvem
-                    fetch(`${targetCloudUrl}/api/participants/attendance`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
@@ -1651,10 +1795,6 @@ export async function syncWithServer(): Promise<void> {
                   }
                 }
               });
-
-              if (localModified) {
-                saveParticipants(updatedLocal);
-              }
             }
           }
         } catch {
@@ -1701,7 +1841,19 @@ export function initMultiDeviceSync(): () => void {
 
           if (type === 'init' && data) {
             if (Array.isArray(data.participants)) {
-              saveParticipants(data.participants);
+              const local = getStoredParticipants();
+              const { merged, newForServer, addedCount, hasAttendanceChanges } = mergeParticipantLists(local, data.participants);
+              saveParticipants(merged, false);
+              if (newForServer.length > 0) {
+                fetch('/api/participants/batch', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ participants: newForServer }),
+                }).catch(() => {});
+              }
+              if (addedCount > 0 || hasAttendanceChanges || merged.length !== local.length) {
+                window.dispatchEvent(new Event('participants-updated'));
+              }
             }
             if (data.settings) {
               localStorage.setItem(COMPANY_KEY, JSON.stringify(data.settings));
@@ -1801,6 +1953,20 @@ export function initMultiDeviceSync(): () => void {
       .then((serverList) => {
         if (Array.isArray(serverList)) {
           const local = getStoredParticipants();
+          const { merged, newForServer, addedCount, hasAttendanceChanges } = mergeParticipantLists(local, serverList);
+          
+          if (addedCount > 0 || hasAttendanceChanges || merged.length !== local.length) {
+            saveParticipants(merged);
+          }
+
+          if (newForServer.length > 0) {
+            fetch('/api/participants/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ participants: newForServer }),
+            }).catch(() => {});
+          }
+
           // Detecta se existem novos participantes recebidos no servidor
           const newItems = serverList.filter((sp) => !local.some((lp) => lp.id === sp.id));
           if (newItems.length > 0) {
@@ -1808,25 +1974,12 @@ export function initMultiDeviceSync(): () => void {
               window.dispatchEvent(new CustomEvent('participant-received', { detail: p }));
             });
           }
-
-          // Compara tamanho ou timestamps para sincronizar se houver novidade
-          if (
-            serverList.length !== local.length ||
-            JSON.stringify(serverList.map((p) => `${p.id}:${p.attended}`)) !==
-              JSON.stringify(local.map((p) => `${p.id}:${p.attended}`))
-          ) {
-            saveParticipants(serverList);
-          }
           setSyncStatus('connected');
         }
 
-        // A cada 3 ciclos (~9 segundos), verifica a nuvem pública externa para sincronizar cadastros feitos via celular 4G/5G
+        // A cada 3 ciclos (~9 segundos), roda syncWithServer completo para sincronização multi-origem
         if (pollCycleCount % 3 === 0 && typeof window !== 'undefined') {
-          const currentOrigin = window.location.origin;
-          const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-          if (targetCloudUrl && currentOrigin !== targetCloudUrl) {
-            syncWithServer();
-          }
+          syncWithServer();
         }
       })
       .catch(() => {
