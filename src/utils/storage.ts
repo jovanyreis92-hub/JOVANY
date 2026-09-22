@@ -1010,6 +1010,26 @@ export async function addParticipant(
       saveParticipants(updated);
       setSyncStatus('connected');
 
+      // Replicar imediatamente para nuvem cruzada (garante recebimento em celulares em 4G/5G/todas as redes)
+      const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+      const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+      if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
+        fetch(`${targetCloudUrl}/api/participants`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: serverParticipant.id,
+            fullName: trimmedName,
+            registrationNumber: trimmedMatricula,
+            company: trimmedCompany,
+            eventId: targetEventId,
+            eventName: targetEventName,
+            createdAt: serverParticipant.createdAt,
+            adminAuth: true,
+          }),
+        }).catch(() => {});
+      }
+
       return { success: true, participant: serverParticipant };
     } else {
       const errorData = await res.json().catch(() => ({}));
@@ -1168,6 +1188,12 @@ export function deleteParticipant(id: string): boolean {
       .then(() => setSyncStatus('connected'))
       .catch(() => setSyncStatus('offline'));
 
+    const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
+      fetch(`${targetCloudUrl}/api/participants/${id}`, { method: 'DELETE' }).catch(() => {});
+    }
+
     return true;
   }
   return false;
@@ -1189,6 +1215,16 @@ export function deleteMultipleParticipants(ids: string[]): number {
     })
       .then(() => setSyncStatus('connected'))
       .catch(() => setSyncStatus('offline'));
+
+    const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
+      fetch(`${targetCloudUrl}/api/participants/delete-multiple`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      }).catch(() => {});
+    }
   }
   return removedCount;
 }
@@ -1217,6 +1253,12 @@ export function toggleAttendance(id: string): { participant: Participant | null;
   fetch(`/api/participants/${id}/toggle`, { method: 'POST' })
     .then(() => setSyncStatus('connected'))
     .catch(() => setSyncStatus('offline'));
+
+  const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
+    fetch(`${targetCloudUrl}/api/participants/${id}/toggle`, { method: 'POST' }).catch(() => {});
+  }
 
   return { participant: updatedParticipant, attended: newAttended };
 }

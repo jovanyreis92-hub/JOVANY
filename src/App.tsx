@@ -91,6 +91,9 @@ export default function App() {
     };
 
     window.addEventListener('participants-updated', handleUpdate);
+    window.addEventListener('participant-received', handleUpdate);
+    window.addEventListener('participant-updated', handleUpdate);
+    window.addEventListener('attendance-confirmed', handleUpdate);
     window.addEventListener('storage', handleUpdate);
     window.addEventListener('company-settings-updated', handleCompanyUpdate);
     window.addEventListener('admin-auth-changed', handleAdminAuthUpdate);
@@ -98,6 +101,9 @@ export default function App() {
     return () => {
       stopSync();
       window.removeEventListener('participants-updated', handleUpdate);
+      window.removeEventListener('participant-received', handleUpdate);
+      window.removeEventListener('participant-updated', handleUpdate);
+      window.removeEventListener('attendance-confirmed', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
       window.removeEventListener('company-settings-updated', handleCompanyUpdate);
       window.removeEventListener('admin-auth-changed', handleAdminAuthUpdate);
@@ -161,6 +167,7 @@ export default function App() {
                 onUpdateParticipants={reloadParticipants}
                 companySettings={companySettings}
                 onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
+                onOpenMobileShare={() => setIsMobileShareOpen(true)}
               />
             </motion.div>
           )}

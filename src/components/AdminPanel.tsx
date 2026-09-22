@@ -28,7 +28,8 @@ import {
   Calendar,
   Filter,
   Pencil,
-  Sparkles
+  Sparkles,
+  Share2
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem, UserAccount } from '../types';
 import { 
@@ -68,6 +69,7 @@ interface AdminPanelProps {
   onUpdateParticipants: () => void;
   companySettings?: CompanySettings;
   onOpenCompanySettings?: () => void;
+  onOpenMobileShare?: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -78,6 +80,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateParticipants,
   companySettings,
   onOpenCompanySettings,
+  onOpenMobileShare,
 }) => {
   // Estado de autenticação do painel (Login vs Registro)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -813,6 +816,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             >
               <Palette className="h-4 w-4 text-amber-600" />
               <span>Layout & Logomarca</span>
+            </button>
+          )}
+
+          {onOpenMobileShare && (
+            <button
+              id="btn-admin-share"
+              type="button"
+              onClick={onOpenMobileShare}
+              className="flex items-center gap-1.5 py-2 px-3 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              title="Compartilhar formulário de inscrição, link público e QR Code para outros celulares e redes"
+            >
+              <Share2 className="h-4 w-4" />
+              <span>Compartilhar</span>
             </button>
           )}
 
