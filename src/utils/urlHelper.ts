@@ -89,14 +89,12 @@ export function resolvePublicRegistrationUrl(
 
   // 3. Se estiver rodando dentro do Google AI Studio (ais-dev- ou ais-pre-)
   if (origin.includes('ais-dev-')) {
-    // Para celulares externos e todas as redes móveis (4G/5G), utiliza a URL pública compartilhada (ais-pre)
-    // que é acessível universalmente sem exigir autenticação interna de desenvolvimento
     return {
-      url: `${SHARED_CLOUD_APP_URL}/?tab=register`,
-      isConverted: true,
+      url: `${origin}${pathname}?tab=register`,
+      isConverted: false,
       isLocalhost: false,
-      type: 'shared_cloud',
-      note: 'URL pública compartilhada (ais-pre) ativa. Pronta para receber cadastros e confirmações de presença de qualquer celular em 4G, 5G ou Wi-Fi.',
+      type: 'live_session',
+      note: 'URL direta da sessão ativa. Participantes de qualquer celular (4G, 5G ou Wi-Fi) enviam cadastros diretamente a este servidor em tempo real.',
     };
   }
 
