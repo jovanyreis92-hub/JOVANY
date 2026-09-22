@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ExcelJS from 'exceljs';
+import * as XLSX from 'xlsx';
 import { Participant } from '../types';
 import { getCompanySettings, getStoredEvents } from './storage';
 
@@ -395,5 +396,298 @@ export function exportToPDF(
 
   const dateStr = new Date().toISOString().slice(0, 10);
   doc.save(`${filenamePrefix}-${dateStr}.pdf`);
+}
+
+// -------------------------------------------------------------
+// IMPORTAÇÃO DE DADOS DO EXCEL (.xlsx, .xls, .csv)
+// -------------------------------------------------------------
+
+export interface ParsedImportRow {
+  rawRow: number;
+  fullName: string;
+  registrationNumber: string;
+  company: string;
+  attended: boolean;
+  eventName?: string;
+  isValid: boolean;
+  error?: string;
+}
+
+export interface ParseExcelResult {
+  rows: ParsedImportRow[];
+  validParticipants: Participant[];
+  totalRows: number;
+  validCount: number;
+  invalidCount: number;
+  warnings: string[];
+  fileName: string;
+}
+
+/**
+ * Lê e analisa um arquivo de planilha (.xlsx, .xls, .csv)
+ * Identifica automaticamente colunas de Nome, Matrícula, Empresa e Presença
+ */
+export async function parseExcelFile(
+  file: File,
+  options?: {
+    defaultEventId?: string;
+    defaultEventName?: string;
+  }
+): Promise<ParseExcelResult> {
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    throw new Error('A planilha selecionada está vazia ou não contém abas.');
+  }
+
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+  if (!rawData || rawData.length === 0) {
+    throw new Error('A planilha está vazia.');
+  }
+
+  // 1. Detecta em qual linha está o cabeçalho (busca até a linha 12)
+  let headerRowIndex = -1;
+  let nameCol = -1;
+  let matriculaCol = -1;
+  let companyCol = -1;
+  let attendanceCol = -1;
+  let eventCol = -1;
+
+  for (let r = 0; r < Math.min(rawData.length, 12); r++) {
+    const row = rawData[r];
+    if (!Array.isArray(row)) continue;
+
+    const rowStrings = row.map((c) => String(c || '').toLowerCase().trim());
+    const hasName = rowStrings.some((s) => s.includes('nome') || s.includes('name') || s.includes('participante'));
+    const hasMatricula = rowStrings.some((s) => s.includes('matr') || s.includes('inscri') || s.includes('registro') || s.includes('código') || s.includes('codigo') || s.includes('cpf'));
+
+    if (hasName || hasMatricula) {
+      headerRowIndex = r;
+      rowStrings.forEach((text, colIdx) => {
+        if (nameCol === -1 && (text.includes('nome') || text.includes('name') || text.includes('participante') || text.includes('aluno'))) {
+          nameCol = colIdx;
+        } else if (matriculaCol === -1 && (text.includes('matr') || text.includes('inscri') || text.includes('registro') || text.includes('código') || text.includes('codigo') || text.includes('cpf') || text === 'id')) {
+          matriculaCol = colIdx;
+        } else if (companyCol === -1 && (text.includes('empresa') || text.includes('company') || text.includes('institui') || text.includes('organiza') || text.includes('entidade') || text.includes('setor'))) {
+          companyCol = colIdx;
+        } else if (attendanceCol === -1 && (text.includes('presen') || text.includes('presente') || text.includes('attended') || text.includes('status') || text.includes('situa'))) {
+          attendanceCol = colIdx;
+        } else if (eventCol === -1 && (text.includes('evento') || text.includes('event'))) {
+          eventCol = colIdx;
+        }
+      });
+      break;
+    }
+  }
+
+  // Se não encontrou cabeçalhos explícitos, adota ordem padrão baseada no tipo de conteúdo
+  if (headerRowIndex === -1) {
+    headerRowIndex = 0;
+    // Tenta deduzir se a primeira coluna é número (matrícula) ou nome
+    const firstCell = String(rawData[0]?.[0] || '').trim();
+    if (/^\d+$/.test(firstCell)) {
+      matriculaCol = 0;
+      nameCol = 1;
+      companyCol = 2;
+      attendanceCol = 3;
+    } else {
+      nameCol = 0;
+      matriculaCol = 1;
+      companyCol = 2;
+      attendanceCol = 3;
+    }
+  }
+
+  const defaultEventId = options?.defaultEventId || 'event_1';
+  const defaultEventName = options?.defaultEventName || 'COZINHA SHOW';
+
+  const rows: ParsedImportRow[] = [];
+  const validParticipants: Participant[] = [];
+  const warnings: string[] = [];
+
+  const existingMatriculas = new Set<string>();
+
+  for (let r = headerRowIndex + 1; r < rawData.length; r++) {
+    const row = rawData[r];
+    if (!Array.isArray(row) || row.every((c) => String(c || '').trim() === '')) {
+      continue; // Pula linha em branco
+    }
+
+    const rawName = nameCol >= 0 ? String(row[nameCol] || '').trim() : '';
+    const rawMatricula = matriculaCol >= 0 ? String(row[matriculaCol] || '').trim() : '';
+    const rawCompany = companyCol >= 0 ? String(row[companyCol] || '').trim() : '';
+    const rawAttendance = attendanceCol >= 0 ? String(row[attendanceCol] || '').trim().toLowerCase() : '';
+    const rawEvent = eventCol >= 0 ? String(row[eventCol] || '').trim() : '';
+
+    // Se a linha não tiver nome nem matrícula, pula
+    if (!rawName && !rawMatricula) {
+      continue;
+    }
+
+    let isValid = true;
+    let errorMsg = '';
+
+    if (!rawName || rawName.length < 2) {
+      isValid = false;
+      errorMsg = 'Nome inválido ou vazio.';
+    }
+
+    // Limpa e normaliza a matrícula (somente dígitos)
+    let cleanMatricula = rawMatricula.replace(/\D/g, '').trim();
+    if (!cleanMatricula) {
+      // Auto-gera número caso a planilha do usuário não contenha coluna de matrícula
+      const autoNum = `${Date.now().toString().slice(-4)}${(r + 1).toString().padStart(3, '0')}`;
+      cleanMatricula = autoNum;
+    }
+
+    // Verifica duplicidade dentro da própria planilha
+    if (existingMatriculas.has(cleanMatricula)) {
+      warnings.push(`Linha ${r + 1}: Matrícula "${cleanMatricula}" repetida na planilha. Gerada variação única.`);
+      cleanMatricula = `${cleanMatricula}${r}`;
+    }
+    existingMatriculas.add(cleanMatricula);
+
+    // Normaliza presença
+    const attended =
+      rawAttendance === 'sim' ||
+      rawAttendance === 's' ||
+      rawAttendance === 'presente' ||
+      rawAttendance === 'present' ||
+      rawAttendance === '1' ||
+      rawAttendance === 'true' ||
+      rawAttendance === 'p' ||
+      rawAttendance === 'x';
+
+    const finalName = rawName.toUpperCase();
+    const finalCompany = rawCompany ? rawCompany.toUpperCase() : 'Não informada';
+    const finalEventName = rawEvent || defaultEventName;
+
+    const parsedRow: ParsedImportRow = {
+      rawRow: r + 1,
+      fullName: finalName,
+      registrationNumber: cleanMatricula,
+      company: finalCompany,
+      attended,
+      eventName: finalEventName,
+      isValid,
+      error: errorMsg,
+    };
+
+    rows.push(parsedRow);
+
+    if (isValid) {
+      const nowIso = new Date().toISOString();
+      const newPart: Participant = {
+        id: `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        fullName: finalName,
+        registrationNumber: cleanMatricula,
+        company: finalCompany,
+        eventId: defaultEventId,
+        eventName: finalEventName,
+        createdAt: nowIso,
+        attended,
+        attendedAt: attended ? nowIso : null,
+      };
+      validParticipants.push(newPart);
+    }
+  }
+
+  return {
+    rows,
+    validParticipants,
+    totalRows: rows.length,
+    validCount: validParticipants.length,
+    invalidCount: rows.length - validParticipants.length,
+    warnings,
+    fileName: file.name,
+  };
+}
+
+/**
+ * Gera e baixa uma planilha modelo do Excel (.xlsx) para importação
+ */
+export async function downloadExcelTemplate(eventName = 'COZINHA SHOW'): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Sistema de Credenciamento';
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet('Modelo de Importação', {
+    views: [{ showGridLines: true }],
+  });
+
+  // Cabeçalho institucional
+  sheet.mergeCells('A1:D1');
+  const title = sheet.getCell('A1');
+  title.value = `PLANILHA MODELO DE IMPORTAÇÃO - EVENTO: ${eventName.toUpperCase()}`;
+  title.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+  title.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+  title.alignment = { vertical: 'middle', horizontal: 'center' };
+  sheet.getRow(1).height = 24;
+
+  // Linhas das colunas
+  const headers = ['Nome Completo', 'Nº de Matrícula', 'Empresa', 'Presença (SIM/NÃO)'];
+  const headerRow = sheet.getRow(2);
+  headerRow.values = headers;
+  headerRow.height = 22;
+  headerRow.eachCell((cell) => {
+    cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF94A3B8' } },
+      bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+      left: { style: 'thin', color: { argb: 'FF94A3B8' } },
+      right: { style: 'thin', color: { argb: 'FF94A3B8' } },
+    };
+  });
+
+  // Exemplos de preenchimento
+  const sampleData = [
+    ['CARLOS EDUARDO SILVA', '1001', 'RESTAURANTE COZINHA GOURMET', 'NÃO'],
+    ['MARIANA SOUZA SANTOS', '1002', 'BUFFET DELÍCIAS & CIA', 'SIM'],
+    ['LUCAS GABRIEL OLIVEIRA', '1003', 'HOTEL & EVENTOS BRASIL', 'NÃO'],
+    ['FERNANDA BEATRIZ COSTA', '1004', 'GASTRONOMIA SHOW LTDA', 'SIM'],
+  ];
+
+  sampleData.forEach((rowValues, idx) => {
+    const row = sheet.getRow(3 + idx);
+    row.values = rowValues;
+    row.height = 19;
+    row.eachCell((cell) => {
+      cell.font = { name: 'Calibri', size: 10 };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      };
+    });
+  });
+
+  // Larguras das colunas
+  sheet.columns = [
+    { key: 'nome', width: 34 },
+    { key: 'matricula', width: 18 },
+    { key: 'empresa', width: 32 },
+    { key: 'presenca', width: 22 },
+  ];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'modelo-importacao-participantes.xlsx';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 

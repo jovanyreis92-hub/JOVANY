@@ -1372,6 +1372,80 @@ export function deleteMultipleParticipants(ids: string[]): number {
   return removedCount;
 }
 
+/**
+ * Importa um lote de participantes diretamente com suporte a mesclagem ou substituição,
+ * sincronizando com todos os servidores, SSE e nuvens conectadas.
+ */
+export async function importBatchParticipants(
+  incomingParticipants: Participant[],
+  mode: 'merge' | 'replace' = 'merge'
+): Promise<{ success: boolean; added: number; updated: number; total: number; error?: string }> {
+  try {
+    if (!Array.isArray(incomingParticipants) || incomingParticipants.length === 0) {
+      return { success: false, added: 0, updated: 0, total: 0, error: 'Nenhum participante fornecido para importação.' };
+    }
+
+    let finalList: Participant[] = [];
+    let addedCount = 0;
+    let updatedCount = 0;
+
+    if (mode === 'replace') {
+      finalList = incomingParticipants;
+      addedCount = incomingParticipants.length;
+    } else {
+      const local = getStoredParticipants();
+      const mergeResult = mergeParticipantLists(local, incomingParticipants);
+      finalList = mergeResult.merged;
+      addedCount = mergeResult.addedCount;
+      updatedCount = mergeResult.hasAttendanceChanges ? 1 : 0;
+    }
+
+    saveParticipants(finalList);
+    window.dispatchEvent(new Event('participants-updated'));
+
+    // Envia lote para o servidor central
+    const endpoint = mode === 'replace' ? '/api/participants/reset' : '/api/participants/batch';
+    const payload = mode === 'replace' ? { participants: finalList } : { participants: incomingParticipants };
+
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+
+    // Replicar para nuvem cruzada se configurada
+    if (typeof window !== 'undefined') {
+      const currentOrigin = window.location.origin.replace(/\/$/, '');
+      const devUrl = (CURRENT_DEV_APP_URL || '').replace(/\/$/, '');
+      const preUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+      const destinations = [devUrl, preUrl].filter((u) => u && u !== currentOrigin);
+
+      destinations.forEach((destUrl) => {
+        fetch(`${destUrl}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }).catch(() => {});
+      });
+    }
+
+    return {
+      success: true,
+      added: addedCount,
+      updated: updatedCount,
+      total: finalList.length,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      added: 0,
+      updated: 0,
+      total: 0,
+      error: err?.message || 'Falha ao importar lote de participantes.',
+    };
+  }
+}
+
 export function toggleAttendance(id: string): { participant: Participant | null; attended: boolean } {
   const current = getStoredParticipants();
   let updatedParticipant: Participant | null = null;

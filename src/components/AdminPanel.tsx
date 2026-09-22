@@ -29,7 +29,8 @@ import {
   Filter,
   Pencil,
   Sparkles,
-  Share2
+  Share2,
+  Upload
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem, UserAccount } from '../types';
 import { 
@@ -60,6 +61,7 @@ import { EventManager } from './EventManager';
 import { EditParticipantModal } from './EditParticipantModal';
 import { AttendanceChart } from './AttendanceChart';
 import { RecentAttendanceLog } from './RecentAttendanceLog';
+import { ImportExcelModal } from './ImportExcelModal';
 
 interface AdminPanelProps {
   participants: Participant[];
@@ -102,6 +104,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Modal para registrar/alterar credenciais quando logado
   const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
+
+  // Modal para importar participantes do Excel
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Sincroniza usuário e contagem quando eventos de usuários disparam
   useEffect(() => {
@@ -837,6 +842,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           )}
 
           <button
+            id="btn-import-excel"
+            type="button"
+            onClick={() => setIsImportModalOpen(true)}
+            className="flex items-center gap-1.5 py-2 px-3 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            title="Importar participantes a partir de uma planilha Excel (.xlsx, .xls, .csv)"
+          >
+            <Upload className="h-4 w-4" />
+            <span>Importar Excel</span>
+          </button>
+
+          <button
             id="btn-export-excel"
             type="button"
             onClick={handleExportExcel}
@@ -1234,7 +1250,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               {filteredParticipants.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
-                    Nenhum participante encontrado com os filtros selecionados.
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <p className="text-sm text-slate-500">Nenhum participante encontrado com os filtros selecionados.</p>
+                      <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                        <button
+                          id="btn-empty-import-excel"
+                          type="button"
+                          onClick={() => setIsImportModalOpen(true)}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                        >
+                          <Upload className="h-4 w-4" />
+                          <span>Importar Dados do Excel</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onNavigateToRegister}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                        >
+                          <UserPlus className="h-4 w-4" />
+                          <span>Cadastrar Manualmente</span>
+                        </button>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -1554,6 +1591,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         onSuccess={(updated) => {
           onUpdateParticipants();
           showToast(`Participante "${updated.fullName}" alterado e sincronizado com sucesso!`, 'success');
+        }}
+      />
+
+      {/* Modal para Importação de Dados do Excel */}
+      <ImportExcelModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        eventsList={eventsList}
+        currentEventId={eventFilter !== 'all' ? eventFilter : undefined}
+        onImportSuccess={(_count, message) => {
+          onUpdateParticipants();
+          showToast(message, 'success');
         }}
       />
     </div>
