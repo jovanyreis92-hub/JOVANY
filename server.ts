@@ -10,6 +10,7 @@ const HOST = '0.0.0.0';
 const DATA_DIR = path.join(process.cwd(), 'data');
 const PARTICIPANTS_FILE = path.join(DATA_DIR, 'participants.json');
 const PARTICIPANTS_BACKUP_FILE = path.join(DATA_DIR, 'participants.backup.json');
+const DELETED_PARTICIPANTS_FILE = path.join(DATA_DIR, 'deleted_participants.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const EVENTS_FILE = path.join(DATA_DIR, 'events.json');
 
@@ -45,21 +46,31 @@ function writeJsonFile<T>(filePath: string, data: T): void {
   }
 }
 
-// Salva participantes de forma atômica no arquivo principal e no backup de redundância
-function persistParticipantsToDisk(parts: any[]): void {
-  writeJsonFile(PARTICIPANTS_FILE, parts);
-  writeJsonFile(PARTICIPANTS_BACKUP_FILE, parts);
+// Carrega lista de IDs de participantes excluídos (tombstones) para impedir retorno acidental
+const rawDeletedIds = readJsonFile<string[]>(DELETED_PARTICIPANTS_FILE, []);
+let deletedParticipantIds = new Set<string>(Array.isArray(rawDeletedIds) ? rawDeletedIds : []);
+
+function persistDeletedIdsToDisk(): void {
+  writeJsonFile(DELETED_PARTICIPANTS_FILE, Array.from(deletedParticipantIds));
 }
 
-// Recupera dados combinando o arquivo primário com o backup de segurança para nunca perder cadastros
+// Salva participantes de forma atômica no arquivo principal e no backup de redundância (filtrando deletados)
+function persistParticipantsToDisk(parts: any[]): void {
+  const filtered = parts.filter((p) => p && p.id && !deletedParticipantIds.has(p.id));
+  writeJsonFile(PARTICIPANTS_FILE, filtered);
+  writeJsonFile(PARTICIPANTS_BACKUP_FILE, filtered);
+}
+
+// Recupera dados combinando o arquivo primário com o backup de segurança, expurgando deletados
 const primaryStored = readJsonFile<any[]>(PARTICIPANTS_FILE, []);
 const backupStored = readJsonFile<any[]>(PARTICIPANTS_BACKUP_FILE, []);
 const mergedMap = new Map<string, any>();
 
-// Une os registros por ID ou por matrícula+evento
+// Une os registros por ID, ignorando estritamente qualquer registro excluído
 [...backupStored, ...primaryStored].forEach((p) => {
-  if (!p) return;
-  const key = p.id || `${p.registrationNumber}_${p.eventId || 'event_1'}`;
+  if (!p || !p.id) return;
+  if (deletedParticipantIds.has(p.id)) return;
+  const key = p.id;
   const existing = mergedMap.get(key);
   if (!existing) {
     mergedMap.set(key, p);
@@ -76,8 +87,8 @@ const mergedMap = new Map<string, any>();
   }
 });
 
-let participants: any[] = Array.from(mergedMap.values());
-// Atualiza os dois arquivos no disco para garantir paridade imediata
+let participants: any[] = Array.from(mergedMap.values()).filter(p => !deletedParticipantIds.has(p.id));
+// Atualiza os dois arquivos no disco para garantir paridade imediata e limpeza de deletados
 persistParticipantsToDisk(participants);
 let companySettings: any = readJsonFile<any>(SETTINGS_FILE, {
   companyName: 'Minha Empresa',
@@ -225,11 +236,19 @@ async function startServer() {
     });
   });
 
-  // 2. Obter lista de participantes
+  // 2. Obter lista de participantes (sempre filtra excluídos)
   app.get('/api/participants', (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
+    participants = participants.filter((p) => p && p.id && !deletedParticipantIds.has(p.id));
     res.json(participants);
+  });
+
+  // 2.1 Obter lista de IDs excluídos (tombstones) para clientes sincronizarem
+  app.get('/api/deleted-participants', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.json(Array.from(deletedParticipantIds));
   });
 
   // 3. Cadastrar participante (suporta cadastros de múltiplos celulares e redes móveis)
@@ -246,6 +265,12 @@ async function startServer() {
 
       if (!trimmedMatricula) {
         return res.status(400).json({ error: 'A matrícula deve conter somente números.' });
+      }
+
+      // Se o ID enviado estiver na lista de deletados, remove do tombstone pois é um cadastro explícito novo
+      if (data.id && deletedParticipantIds.has(data.id)) {
+        deletedParticipantIds.delete(data.id);
+        persistDeletedIdsToDisk();
       }
 
       // Se já existir com a mesma matrícula no mesmo evento
@@ -315,7 +340,7 @@ async function startServer() {
         attendedAt: data.attendedAt || null,
       };
 
-      participants = [newParticipant, ...participants];
+      participants = [newParticipant, ...participants.filter((p) => p.id !== newParticipant.id && !deletedParticipantIds.has(p.id))];
       persistParticipantsToDisk(participants);
       broadcastSSE('participant_added', newParticipant);
 
@@ -327,7 +352,7 @@ async function startServer() {
     }
   });
 
-  // 4. Lote de participantes com união inteligente e preservação de presenças
+  // 4. Lote de participantes com união inteligente e BLOQUEIO ESTRITO DE ITENS EXCLUÍDOS
   app.post('/api/participants/batch', (req, res) => {
     try {
       const incoming: any[] = req.body?.participants;
@@ -340,6 +365,12 @@ async function startServer() {
 
       incoming.forEach((item) => {
         if (!item || (!item.id && !item.registrationNumber)) return;
+        
+        // CRÍTICO: Bloqueia re-inserção de participante previamente excluído (impede retorno ao cadastro)
+        if (item.id && deletedParticipantIds.has(item.id)) {
+          return;
+        }
+
         const index = participants.findIndex(
           (p) =>
             (item.id && p.id === item.id) ||
@@ -375,9 +406,11 @@ async function startServer() {
       });
 
       if (modified) {
+        participants = participants.filter((p) => !deletedParticipantIds.has(p.id));
         persistParticipantsToDisk(participants);
         broadcastSSE('init', {
           participants,
+          deletedIds: Array.from(deletedParticipantIds),
           settings: companySettings,
           events: eventsList,
         });
@@ -485,18 +518,23 @@ async function startServer() {
     });
   });
 
-  // 8. Excluir participante
+  // 8. Excluir participante (registra tombstone definitivo para impedir re-surgimento)
   app.delete('/api/participants/:id', (req, res) => {
     const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'ID do participante obrigatório.' });
+
+    // Registra o ID na lista persistente de excluídos (tombstones)
+    deletedParticipantIds.add(id);
+    persistDeletedIdsToDisk();
+
     const initialLength = participants.length;
     participants = participants.filter((p) => p.id !== id);
 
-    if (participants.length !== initialLength) {
-      persistParticipantsToDisk(participants);
-      broadcastSSE('participant_deleted', id);
-    }
+    persistParticipantsToDisk(participants);
+    broadcastSSE('participant_deleted', id);
 
-    res.json({ success: true });
+    console.log(`[SERVER] Participante ${id} excluído com sucesso e adicionado ao registro de exclusões.`);
+    res.json({ success: true, id });
   });
 
   // 9. Excluir múltiplos participantes
@@ -506,21 +544,40 @@ async function startServer() {
       return res.json({ success: true, deletedCount: 0 });
     }
 
+    // Registra todos os IDs na lista persistente de excluídos
+    ids.forEach((id) => {
+      if (id) deletedParticipantIds.add(String(id));
+    });
+    persistDeletedIdsToDisk();
+
     const idsSet = new Set(ids);
     const initialLength = participants.length;
     participants = participants.filter((p) => !idsSet.has(p.id));
 
-    if (participants.length !== initialLength) {
-      persistParticipantsToDisk(participants);
-      broadcastSSE('multiple_deleted', ids);
-    }
+    persistParticipantsToDisk(participants);
+    broadcastSSE('multiple_deleted', ids);
 
-    res.json({ success: true, deletedCount: initialLength - participants.length });
+    console.log(`[SERVER] ${ids.length} participantes excluídos com sucesso.`);
+    res.json({ success: true, deletedCount: initialLength - participants.length, ids });
   });
 
   // 10. Resetar participantes
   app.post('/api/participants/reset', (req, res) => {
     const newItems = Array.isArray(req.body?.participants) ? req.body.participants : [];
+    
+    // Se for reset para demonstração, remove os IDs dos itens inseridos da lista de excluídos
+    if (req.body?.clearTombstones) {
+      deletedParticipantIds.clear();
+      persistDeletedIdsToDisk();
+    } else {
+      newItems.forEach((p) => {
+        if (p && p.id) {
+          deletedParticipantIds.delete(p.id);
+        }
+      });
+      persistDeletedIdsToDisk();
+    }
+
     participants = newItems;
     persistParticipantsToDisk(participants);
     broadcastSSE('reset', participants);
@@ -573,12 +630,13 @@ async function startServer() {
     const client: SseClient = { id: clientId, res };
     sseClients.push(client);
 
-    // Envia estado inicial ao cliente conectado
+    // Envia estado inicial ao cliente conectado incluindo lista de deletados
     res.write(
       `data: ${JSON.stringify({
         type: 'init',
         data: {
           participants,
+          deletedIds: Array.from(deletedParticipantIds),
           settings: companySettings,
           events: eventsList,
         },

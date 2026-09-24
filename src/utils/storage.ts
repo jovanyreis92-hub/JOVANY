@@ -822,11 +822,56 @@ export function deleteEvent(id: string): { success: boolean; error?: string } {
 }
 
 export const MASTER_BACKUP_STORAGE_KEY = 'qr_event_participants_master_backup_v2';
+export const DELETED_IDS_STORAGE_KEY = 'qr_event_deleted_participant_ids_v2';
+
+/**
+ * Gerenciamento seguro de IDs de participantes excluídos (tombstones).
+ * Garante que qualquer participante excluído pelo administrador nunca ressurja,
+ * mesmo após sincronização em segundo plano, reconciliação entre celulares ou recarregamento.
+ */
+export function getDeletedParticipantIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(DELETED_IDS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const list = JSON.parse(raw);
+    return new Set(Array.isArray(list) ? list : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function recordDeletedParticipantIds(ids: string[]): void {
+  if (typeof window === 'undefined' || !ids || ids.length === 0) return;
+  try {
+    const current = getDeletedParticipantIds();
+    let changed = false;
+    ids.forEach((id) => {
+      if (id && !current.has(id)) {
+        current.add(String(id));
+        changed = true;
+      }
+    });
+    if (changed) {
+      localStorage.setItem(DELETED_IDS_STORAGE_KEY, JSON.stringify(Array.from(current)));
+    }
+  } catch (err) {
+    console.warn('Erro ao salvar IDs de participantes excluídos:', err);
+  }
+}
+
+export function clearDeletedParticipantIds(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(DELETED_IDS_STORAGE_KEY);
+  } catch {}
+}
 
 /**
  * Função de União e Fusão Inteligente de Participantes (Anti-perda de dados)
- * Garante que cadastros feitos em qualquer celular ou computador sejam mantidos
- * e que presenças confirmadas nunca sejam revertidas por clientes desatualizados.
+ * Garante que cadastros feitos em qualquer celular ou computador sejam mantidos,
+ * presenças confirmadas nunca sejam revertidas E que participantes excluídos
+ * NUNCA sejam re-adicionados pelo merge.
  */
 export function mergeParticipantLists(
   baseList: Participant[],
@@ -837,14 +882,15 @@ export function mergeParticipantLists(
   newForServer: Participant[];
   hasAttendanceChanges: boolean;
 } {
+  const deletedIds = getDeletedParticipantIds();
   const normDigits = (s?: string) => (s || '').replace(/\D/g, '');
 
   const map = new Map<string, Participant>();
   const idToKey = new Map<string, string>();
 
-  // 1. Carrega os itens da baseList
+  // 1. Carrega os itens da baseList, expurgando previamente qualquer item excluído
   baseList.forEach((item) => {
-    if (!item) return;
+    if (!item || !item.id || deletedIds.has(item.id)) return;
     const digits = normDigits(item.registrationNumber);
     const event = item.eventId || 'event_1';
     const key = digits ? `reg_${digits}_${event}` : `id_${item.id}`;
@@ -857,9 +903,9 @@ export function mergeParticipantLists(
   let addedCount = 0;
   let hasAttendanceChanges = false;
 
-  // 2. Itera sobre a lista de entrada e funde inteligentemente
+  // 2. Itera sobre a lista de entrada e funde inteligentemente (bloqueando excluídos)
   incomingList.forEach((incoming) => {
-    if (!incoming) return;
+    if (!incoming || !incoming.id || deletedIds.has(incoming.id)) return;
     const digits = normDigits(incoming.registrationNumber);
     const event = incoming.eventId || 'event_1';
     let key = digits ? `reg_${digits}_${event}` : '';
@@ -904,22 +950,27 @@ export function mergeParticipantLists(
     }
   });
 
-  const merged = Array.from(map.values()).sort((a, b) => {
-    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return timeB - timeA;
-  });
+  const merged = Array.from(map.values())
+    .filter((p) => p && p.id && !deletedIds.has(p.id))
+    .sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
 
-  // 3. Detecta participantes que estão na base local mas faltam na lista recebida
+  // 3. Detecta participantes que estão na base local mas faltam na lista recebida (NUNCA envia deletados)
   const incomingSet = new Set<string>();
   incomingList.forEach((inc) => {
-    if (inc.id) incomingSet.add(inc.id);
-    const digits = normDigits(inc.registrationNumber);
-    if (digits) incomingSet.add(`reg_${digits}_${inc.eventId || 'event_1'}`);
+    if (inc && inc.id && !deletedIds.has(inc.id)) {
+      incomingSet.add(inc.id);
+      const digits = normDigits(inc.registrationNumber);
+      if (digits) incomingSet.add(`reg_${digits}_${inc.eventId || 'event_1'}`);
+    }
   });
 
   const newForServer = baseList.filter((base) => {
-    if (base.id && incomingSet.has(base.id)) return false;
+    if (!base || !base.id || deletedIds.has(base.id)) return false;
+    if (incomingSet.has(base.id)) return false;
     const digits = normDigits(base.registrationNumber);
     if (digits && incomingSet.has(`reg_${digits}_${base.eventId || 'event_1'}`)) return false;
     return true;
@@ -935,6 +986,7 @@ export function mergeParticipantLists(
 
 export function getStoredParticipants(): Participant[] {
   try {
+    const deletedIds = getDeletedParticipantIds();
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       // Tenta recuperar do backup seguro caso o cache principal tenha sido temporariamente limpo
@@ -943,15 +995,24 @@ export function getStoredParticipants(): Participant[] {
         try {
           const backupList = JSON.parse(backupRaw);
           if (Array.isArray(backupList) && backupList.length > 0) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(backupList));
-            return backupList;
+            const filteredBackup = backupList.filter((p) => p && p.id && !deletedIds.has(p.id));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(filteredBackup));
+            return filteredBackup;
           }
         } catch {}
       }
       return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    
+    // Filtra estritamente participantes excluídos
+    const filtered = parsed.filter((p) => p && p.id && !deletedIds.has(p.id));
+    if (filtered.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+      localStorage.setItem(MASTER_BACKUP_STORAGE_KEY, JSON.stringify(filtered));
+    }
+    return filtered;
   } catch (err) {
     console.error('Erro ao ler participantes do localStorage:', err);
     return [];
@@ -960,11 +1021,13 @@ export function getStoredParticipants(): Participant[] {
 
 export function saveParticipants(participants: Participant[], broadcastLocal = true): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(participants));
-    // Salva cópia imediata no backup persistente
-    if (participants.length > 0) {
-      localStorage.setItem(MASTER_BACKUP_STORAGE_KEY, JSON.stringify(participants));
-    }
+    const deletedIds = getDeletedParticipantIds();
+    const sanitized = participants.filter((p) => p && p.id && !deletedIds.has(p.id));
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    // Salva cópia imediata no backup persistente sincronizada (sem dados excluídos)
+    localStorage.setItem(MASTER_BACKUP_STORAGE_KEY, JSON.stringify(sanitized));
+
     if (broadcastLocal) {
       window.dispatchEvent(new Event('participants-updated'));
     }
@@ -1322,53 +1385,103 @@ export async function updateParticipant(
 }
 
 export function deleteParticipant(id: string): boolean {
+  if (!id) return false;
+
+  // 1. Registra o ID nos tombstones locais imediatamente para impedir qualquer ressuscitação
+  recordDeletedParticipantIds([id]);
+
+  // 2. Limpa da lista de participantes ativos e do backup principal
   const current = getStoredParticipants();
   const updated = current.filter((p) => p.id !== id);
-  if (updated.length !== current.length) {
-    saveParticipants(updated);
+  saveParticipants(updated);
 
-    fetch(`/api/participants/${id}`, { method: 'DELETE' })
-      .then(() => setSyncStatus('connected'))
-      .catch(() => setSyncStatus('offline'));
-
-    const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-    if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
-      fetch(`${targetCloudUrl}/api/participants/${id}`, { method: 'DELETE' }).catch(() => {});
+  // 3. Remove de qualquer fila offline pendente
+  try {
+    const rawQueue = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (rawQueue) {
+      const q: Participant[] = JSON.parse(rawQueue);
+      const filteredQ = q.filter((p) => p.id !== id);
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(filteredQ));
     }
+  } catch {}
 
-    return true;
+  // 4. Notifica o servidor local para exclusão definitiva
+  fetch(`/api/participants/${id}`, { 
+    method: 'DELETE',
+    headers: { 'Cache-Control': 'no-cache' },
+    keepalive: true,
+  })
+    .then(() => setSyncStatus('connected'))
+    .catch(() => setSyncStatus('offline'));
+
+  // 5. Propaga exclusão para nuvem cruzada se configurada
+  const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
+    fetch(`${targetCloudUrl}/api/participants/${id}`, { 
+      method: 'DELETE',
+      headers: { 'Cache-Control': 'no-cache' },
+      keepalive: true,
+    }).catch(() => {});
   }
-  return false;
+
+  // 6. Alerta imediatamente a interface e componentes
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('participants-updated'));
+  }
+
+  return true;
 }
 
 export function deleteMultipleParticipants(ids: string[]): number {
   if (!ids || ids.length === 0) return 0;
+
+  // 1. Registra todos os IDs nos tombstones locais imediatamente
+  recordDeletedParticipantIds(ids);
+
   const current = getStoredParticipants();
   const idSet = new Set(ids);
   const updated = current.filter((p) => !idSet.has(p.id));
   const removedCount = current.length - updated.length;
-  if (removedCount > 0) {
-    saveParticipants(updated);
+  saveParticipants(updated);
 
-    fetch('/api/participants/delete-multiple', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    })
-      .then(() => setSyncStatus('connected'))
-      .catch(() => setSyncStatus('offline'));
-
-    const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-    if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
-      fetch(`${targetCloudUrl}/api/participants/delete-multiple`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids }),
-      }).catch(() => {});
+  // 2. Remove de qualquer fila offline
+  try {
+    const rawQueue = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (rawQueue) {
+      const q: Participant[] = JSON.parse(rawQueue);
+      const filteredQ = q.filter((p) => !idSet.has(p.id));
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(filteredQ));
     }
+  } catch {}
+
+  // 3. Notifica o servidor local
+  fetch('/api/participants/delete-multiple', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+    body: JSON.stringify({ ids }),
+    keepalive: true,
+  })
+    .then(() => setSyncStatus('connected'))
+    .catch(() => setSyncStatus('offline'));
+
+  // 4. Propaga para nuvem cruzada
+  const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
+    fetch(`${targetCloudUrl}/api/participants/delete-multiple`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      body: JSON.stringify({ ids }),
+      keepalive: true,
+    }).catch(() => {});
   }
+
+  // 5. Alerta interface
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('participants-updated'));
+  }
+
   return removedCount;
 }
 
@@ -1720,18 +1833,26 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
 }
 
 export function resetToDemoData(): void {
+  clearDeletedParticipantIds();
   saveParticipants(INITIAL_PARTICIPANTS);
-  fetch('/api/participants/reset', { method: 'POST' })
+  fetch('/api/participants/reset', { 
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ participants: INITIAL_PARTICIPANTS, clearTombstones: true })
+  })
     .then(() => setSyncStatus('connected'))
     .catch(() => setSyncStatus('offline'));
 }
 
 export function clearAllParticipants(): void {
+  const current = getStoredParticipants();
+  const allIds = current.map((p) => p.id);
+  recordDeletedParticipantIds(allIds);
   saveParticipants([]);
   fetch('/api/participants/delete-multiple', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: getStoredParticipants().map((p) => p.id) }),
+    body: JSON.stringify({ ids: allIds }),
   }).catch(() => {});
 }
 
@@ -1743,7 +1864,7 @@ export async function syncWithServer(): Promise<void> {
     await flushOfflineQueue();
 
     const timestamp = Date.now();
-    const [partRes, setRes, evtRes] = await Promise.all([
+    const [partRes, setRes, evtRes, delRes] = await Promise.all([
       fetch(`/api/participants?_t=${timestamp}`, {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
@@ -1759,7 +1880,20 @@ export async function syncWithServer(): Promise<void> {
         headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
         credentials: 'include',
       }),
+      fetch(`/api/deleted-participants?_t=${timestamp}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+        credentials: 'include',
+      }).catch(() => null),
     ]);
+
+    // Atualiza tombstones com dados do servidor central
+    if (delRes && delRes.ok) {
+      const serverDeletedIds: string[] = await delRes.json().catch(() => []);
+      if (Array.isArray(serverDeletedIds) && serverDeletedIds.length > 0) {
+        recordDeletedParticipantIds(serverDeletedIds);
+      }
+    }
 
     if (partRes.ok) {
       const serverParts: Participant[] = await partRes.json();
@@ -1769,7 +1903,7 @@ export async function syncWithServer(): Promise<void> {
 
         saveParticipants(merged, false);
 
-        // Se tínhamos participantes cadastrados localmente que faltam no servidor, envia ao servidor imediatamente
+        // Se tínhamos participantes cadastrados localmente que faltam no servidor (e NÃO foram excluídos), envia
         if (newForServer.length > 0) {
           fetch('/api/participants/batch', {
             method: 'POST',
@@ -1801,15 +1935,40 @@ export async function syncWithServer(): Promise<void> {
     }
 
     // Sincronização em nuvem cruzada: se houver outro endpoint na nuvem (ais-dev ou ais-pre),
-    // realiza ponte bidirecional para capturar cadastros feitos por participantes em 4G/5G ou outras redes
+    // realiza ponte bidirecional sincronizando cadastros E propagando exclusões
     if (typeof window !== 'undefined') {
       const currentOrigin = window.location.origin.replace(/\/$/, '');
       const devUrl = (CURRENT_DEV_APP_URL || '').replace(/\/$/, '');
       const preUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
       const destinations = [devUrl, preUrl].filter((u) => u && u !== currentOrigin);
 
+      const localDeletedIds = Array.from(getDeletedParticipantIds());
+
       for (const destUrl of destinations) {
         try {
+          // 1. Propaga IDs excluídos para a outra nuvem para garantir paridade de exclusão
+          if (localDeletedIds.length > 0) {
+            fetch(`${destUrl}/api/participants/delete-multiple`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: localDeletedIds }),
+            }).catch(() => {});
+          }
+
+          // 2. Consulta IDs excluídos na outra nuvem
+          const cloudDelRes = await fetch(`${destUrl}/api/deleted-participants?_t=${timestamp}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+          }).catch(() => null);
+
+          if (cloudDelRes && cloudDelRes.ok) {
+            const destDeleted: string[] = await cloudDelRes.json().catch(() => []);
+            if (Array.isArray(destDeleted) && destDeleted.length > 0) {
+              recordDeletedParticipantIds(destDeleted);
+            }
+          }
+
+          // 3. Consulta participantes na outra nuvem
           const cloudRes = await fetch(`${destUrl}/api/participants?_t=${timestamp}`, {
             cache: 'no-store',
             headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
@@ -1824,7 +1983,7 @@ export async function syncWithServer(): Promise<void> {
                 saveParticipants(merged);
               }
 
-              // Participantes locais que faltam na nuvem de destino
+              // Participantes locais que faltam na nuvem de destino (sem incluir excluídos)
               const missingInCloud = merged.filter(
                 (lp) => !cloudParts.some((cp) => cp.id === lp.id || (cp.registrationNumber === lp.registrationNumber && (cp.eventId || 'event_1') === (lp.eventId || 'event_1')))
               );
@@ -1896,7 +2055,7 @@ export function initMultiDeviceSync(): () => void {
   // 1. Sincroniza imediatamente ao abrir a página
   syncWithServer();
 
-  // 2. Conecta ao SSE (/api/events) para receber cadastros e presenças em tempo real (< 100ms)
+  // 2. Conecta ao SSE (/api/events) para receber cadastros, presenças e exclusões em tempo real (< 100ms)
   let eventSource: EventSource | null = null;
   let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -1914,6 +2073,11 @@ export function initMultiDeviceSync(): () => void {
           const { type, data } = payload;
 
           if (type === 'init' && data) {
+            // Registra IDs excluídos conhecidos pelo servidor
+            if (Array.isArray(data.deletedIds) && data.deletedIds.length > 0) {
+              recordDeletedParticipantIds(data.deletedIds);
+            }
+
             if (Array.isArray(data.participants)) {
               const local = getStoredParticipants();
               const { merged, newForServer, addedCount, hasAttendanceChanges } = mergeParticipantLists(local, data.participants);
@@ -1940,13 +2104,18 @@ export function initMultiDeviceSync(): () => void {
               window.dispatchEvent(new CustomEvent('events-updated', { detail: data.events }));
             }
           } else if (type === 'participant_added' && data) {
+            const deleted = getDeletedParticipantIds();
+            if (deleted.has(data.id)) return; // Ignora se o ID já foi excluído neste cliente
+
             const current = getStoredParticipants();
             if (!current.some((p) => p.id === data.id)) {
               saveParticipants([data, ...current]);
-              // Dispara evento customizado para alertar componentes e painel de controle
               window.dispatchEvent(new CustomEvent('participant-received', { detail: data }));
             }
           } else if (type === 'attendance_updated' && data) {
+            const deleted = getDeletedParticipantIds();
+            if (deleted.has(data.id)) return;
+
             const current = getStoredParticipants();
             const updated = current.map((p) => (p.id === data.id ? data : p));
             saveParticipants(updated);
@@ -1960,23 +2129,37 @@ export function initMultiDeviceSync(): () => void {
             }
           } else if (type === 'attendance_confirmed' && data) {
             if (data.participant) {
+              const deleted = getDeletedParticipantIds();
+              if (deleted.has(data.participant.id)) return;
+
               const current = getStoredParticipants();
               const updated = current.map((p) => (p.id === data.participant.id ? data.participant : p));
               saveParticipants(updated);
               window.dispatchEvent(new CustomEvent('attendance-confirmed', { detail: data }));
             }
           } else if (type === 'participant_updated' && data) {
+            const deleted = getDeletedParticipantIds();
+            if (deleted.has(data.id)) return;
+
             const current = getStoredParticipants();
             const updated = current.map((p) => (p.id === data.id ? data : p));
             saveParticipants(updated);
             window.dispatchEvent(new CustomEvent('participant-updated', { detail: data }));
           } else if (type === 'participant_deleted' && data) {
+            // Registra nos tombstones e remove da lista local
+            recordDeletedParticipantIds([data]);
             const current = getStoredParticipants();
-            saveParticipants(current.filter((p) => p.id !== data));
+            const filtered = current.filter((p) => p.id !== data);
+            saveParticipants(filtered);
+            window.dispatchEvent(new Event('participants-updated'));
           } else if (type === 'multiple_deleted' && Array.isArray(data)) {
+            // Registra múltiplos nos tombstones e remove da lista local
+            recordDeletedParticipantIds(data);
             const current = getStoredParticipants();
             const set = new Set(data);
-            saveParticipants(current.filter((p) => !set.has(p.id)));
+            const filtered = current.filter((p) => !set.has(p.id));
+            saveParticipants(filtered);
+            window.dispatchEvent(new Event('participants-updated'));
           } else if (type === 'settings_updated' && data) {
             localStorage.setItem(COMPANY_KEY, JSON.stringify(data));
             window.dispatchEvent(
@@ -1987,6 +2170,7 @@ export function initMultiDeviceSync(): () => void {
             window.dispatchEvent(new CustomEvent('events-updated', { detail: data }));
           } else if (type === 'reset' && Array.isArray(data)) {
             saveParticipants(data);
+            window.dispatchEvent(new Event('participants-updated'));
           }
         } catch (err) {
           console.error('Erro ao processar evento SSE:', err);
@@ -2014,7 +2198,7 @@ export function initMultiDeviceSync(): () => void {
 
   connectSSE();
 
-  // 3. Heartbeat Polling a cada 3 segundos com anti-cache para garantir atualização em celulares 4G/5G
+  // 3. Heartbeat Polling a cada 3 segundos com anti-cache para celulares 4G/5G
   let pollCycleCount = 0;
   const pollInterval = setInterval(() => {
     pollCycleCount++;
@@ -2041,7 +2225,7 @@ export function initMultiDeviceSync(): () => void {
             }).catch(() => {});
           }
 
-          // Detecta se existem novos participantes recebidos no servidor
+          // Detecta se existem novos participantes válidos recebidos no servidor
           const newItems = serverList.filter((sp) => !local.some((lp) => lp.id === sp.id));
           if (newItems.length > 0) {
             newItems.forEach((p) => {
@@ -2051,7 +2235,7 @@ export function initMultiDeviceSync(): () => void {
           setSyncStatus('connected');
         }
 
-        // A cada 3 ciclos (~9 segundos), roda syncWithServer completo para sincronização multi-origem
+        // A cada 3 ciclos (~9 segundos), roda syncWithServer completo para reconciliação multi-origem
         if (pollCycleCount % 3 === 0 && typeof window !== 'undefined') {
           syncWithServer();
         }
