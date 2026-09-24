@@ -20,6 +20,7 @@ export interface Participant {
   createdAt: string;         // Data/hora de cadastro ISO
   attended: boolean;         // Presença confirmada?
   attendedAt?: string | null; // Data/hora da confirmação
+  attendanceUpdatedAt?: string | null; // Data/hora da última alteração de status (Presente ou Ausente)
 }
 
 export interface QrPayload {
@@ -48,7 +49,7 @@ export interface CompanySettings {
   creatorSignature?: string;  // Assinatura/texto personalizado no rodapé
 }
 
-export type ActiveTab = 'register' | 'admin';
+export type ActiveTab = 'register' | 'scanner' | 'admin';
 
 export type UserRole = 'admin' | 'operator' | 'coordinator';
 

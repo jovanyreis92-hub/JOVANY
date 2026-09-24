@@ -17,9 +17,11 @@ import { applyLayoutPreferences } from './utils/theme';
 import { Header } from './components/Header';
 import { RegistrationForm } from './components/RegistrationForm';
 import { AdminPanel } from './components/AdminPanel';
+import { QrScanner } from './components/QrScanner';
+import { RecentAttendanceLog } from './components/RecentAttendanceLog';
 import { CompanySettingsModal } from './components/CompanySettingsModal';
 import { MobileShareModal } from './components/MobileShareModal';
-import { UserPlus, ShieldCheck, CheckCircle2, Sparkles } from 'lucide-react';
+import { UserPlus, ShieldCheck, CheckCircle2, Sparkles, CheckCheck, Zap, X, UserX } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('register');
@@ -28,6 +30,12 @@ export default function App() {
   const [companySettings, setCompanySettings] = useState<CompanySettings>(getCompanySettings());
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState<boolean>(false);
   const [isMobileShareOpen, setIsMobileShareOpen] = useState<boolean>(false);
+  const [liveAttendanceNotification, setLiveAttendanceNotification] = useState<{
+    participant: Participant;
+    timestamp: string;
+    source: string;
+    status: 'present' | 'absent';
+  } | null>(null);
 
   const handleSetAdminAuth = (auth: boolean) => {
     setIsAdminAuthenticated(auth);
@@ -53,16 +61,13 @@ export default function App() {
   }, [companySettings.fontFamily, companySettings.layoutScale, companySettings.primaryColor]);
 
   useEffect(() => {
-    // Detecta parâmetro de aba na URL (?tab=register / admin / eventId)
+    // Detecta parâmetro de aba na URL (?tab=register / admin / scanner / eventId)
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab');
       const eventIdParam = params.get('eventId');
-      if (tabParam === 'register' || tabParam === 'admin') {
+      if (tabParam === 'register' || tabParam === 'admin' || tabParam === 'scanner') {
         setActiveTab(tabParam as ActiveTab);
-      } else if (tabParam === 'scanner') {
-        // Redireciona para o painel admin (onde fica o leitor QR da portaria)
-        setActiveTab('admin');
       } else if (eventIdParam) {
         // Link único de inscrição do evento
         setActiveTab('register');
@@ -90,10 +95,55 @@ export default function App() {
       }
     };
 
+    const handleAttendanceConfirmed = (e: Event) => {
+      reloadParticipants();
+      const custom = e as CustomEvent<{ participant?: Participant; timestamp?: string; synced?: boolean }>;
+      if (custom.detail?.participant) {
+        const p = custom.detail.participant;
+        const time = custom.detail.timestamp
+          ? new Date(custom.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        setLiveAttendanceNotification({
+          participant: p,
+          timestamp: time,
+          source: custom.detail.synced ? 'Sincronizado Multi-Rede' : 'Presença Confirmada',
+          status: 'present',
+        });
+
+        setTimeout(() => {
+          setLiveAttendanceNotification((curr) => (curr?.participant.id === p.id ? null : curr));
+        }, 4500);
+      }
+    };
+
+    const handleAttendanceAbsent = (e: Event) => {
+      reloadParticipants();
+      const custom = e as CustomEvent<{ participant?: Participant; timestamp?: string; synced?: boolean }>;
+      if (custom.detail?.participant) {
+        const p = custom.detail.participant;
+        const time = custom.detail.timestamp
+          ? new Date(custom.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        setLiveAttendanceNotification({
+          participant: p,
+          timestamp: time,
+          source: custom.detail.synced ? 'Sincronizado Multi-Rede' : 'Status Alterado',
+          status: 'absent',
+        });
+
+        setTimeout(() => {
+          setLiveAttendanceNotification((curr) => (curr?.participant.id === p.id ? null : curr));
+        }, 4500);
+      }
+    };
+
     window.addEventListener('participants-updated', handleUpdate);
     window.addEventListener('participant-received', handleUpdate);
     window.addEventListener('participant-updated', handleUpdate);
-    window.addEventListener('attendance-confirmed', handleUpdate);
+    window.addEventListener('attendance-confirmed', handleAttendanceConfirmed);
+    window.addEventListener('attendance-absent', handleAttendanceAbsent);
     window.addEventListener('storage', handleUpdate);
     window.addEventListener('company-settings-updated', handleCompanyUpdate);
     window.addEventListener('admin-auth-changed', handleAdminAuthUpdate);
@@ -103,7 +153,8 @@ export default function App() {
       window.removeEventListener('participants-updated', handleUpdate);
       window.removeEventListener('participant-received', handleUpdate);
       window.removeEventListener('participant-updated', handleUpdate);
-      window.removeEventListener('attendance-confirmed', handleUpdate);
+      window.removeEventListener('attendance-confirmed', handleAttendanceConfirmed);
+      window.removeEventListener('attendance-absent', handleAttendanceAbsent);
       window.removeEventListener('storage', handleUpdate);
       window.removeEventListener('company-settings-updated', handleCompanyUpdate);
       window.removeEventListener('admin-auth-changed', handleAdminAuthUpdate);
@@ -120,6 +171,74 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans antialiased selection:bg-primary-theme selection:text-white">
+      {/* Notificação Flutuante de Leitura QR Sincronizada em Tempo Real */}
+      <AnimatePresence>
+        {liveAttendanceNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: -24, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -24, scale: 0.95 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className={`fixed top-18 right-4 left-4 sm:left-auto sm:max-w-md z-50 bg-slate-900/95 text-white border-2 rounded-2xl shadow-2xl p-3.5 backdrop-blur-md flex items-center justify-between gap-3 pointer-events-auto ${
+              liveAttendanceNotification.status === 'present'
+                ? 'border-emerald-400'
+                : 'border-amber-400'
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm animate-pulse ${
+                  liveAttendanceNotification.status === 'present'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-amber-500 text-white'
+                }`}
+              >
+                {liveAttendanceNotification.status === 'present' ? (
+                  <CheckCheck className="h-5 w-5" />
+                ) : (
+                  <UserX className="h-5 w-5" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div
+                  className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${
+                    liveAttendanceNotification.status === 'present'
+                      ? 'text-emerald-400'
+                      : 'text-amber-400'
+                  }`}
+                >
+                  <Zap
+                    className={`h-3 w-3 ${
+                      liveAttendanceNotification.status === 'present'
+                        ? 'fill-emerald-400'
+                        : 'fill-amber-400'
+                    }`}
+                  />
+                  <span>
+                    {liveAttendanceNotification.status === 'present'
+                      ? 'Presença Sincronizada: PRESENTE'
+                      : 'Status Sincronizado: AUSENTE'}
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-white truncate mt-0.5">
+                  {liveAttendanceNotification.participant.fullName}
+                </p>
+                <p className="text-[11px] text-slate-300 font-mono truncate">
+                  Matrícula: {liveAttendanceNotification.participant.registrationNumber} • {liveAttendanceNotification.timestamp}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLiveAttendanceNotification(null)}
+              className="text-slate-400 hover:text-white p-1 rounded-lg text-xs cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Barra de Navegação Superior com Logomarca da Empresa */}
       <Header
         activeTab={activeTab}
@@ -151,6 +270,28 @@ export default function App() {
                 onNavigateToAdmin={() => setActiveTab('admin')}
               />
             </motion.div>
+          ) : activeTab === 'scanner' ? (
+            <motion.div
+              key="route-tab-scanner"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="pt-1"
+            >
+              <QrScanner
+                isActive={activeTab === 'scanner'}
+                onAttendanceMarked={(p) => {
+                  reloadParticipants();
+                }}
+                onNavigateToAdmin={() => setActiveTab('admin')}
+              />
+              <div className="max-w-3xl mx-auto px-4 pb-12">
+                <RecentAttendanceLog
+                  participants={participants}
+                />
+              </div>
+            </motion.div>
           ) : (
             <motion.div
               key="route-tab-admin"
@@ -175,12 +316,12 @@ export default function App() {
       </main>
 
       {/* Barra de Navegação Inferior Fixa para Dispositivos Móveis */}
-      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-2 shadow-lg flex items-center justify-around">
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-2 shadow-lg flex items-center justify-around">
         <button
           id="mobile-tab-register"
           type="button"
           onClick={() => setActiveTab('register')}
-          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
+          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-4 rounded-lg transition-colors cursor-pointer ${
             activeTab === 'register' ? 'text-primary-theme font-bold' : 'text-slate-500'
           }`}
         >
@@ -192,7 +333,7 @@ export default function App() {
           id="mobile-tab-admin"
           type="button"
           onClick={() => setActiveTab('admin')}
-          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
+          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-4 rounded-lg transition-colors cursor-pointer ${
             activeTab === 'admin' ? 'text-primary-theme font-bold' : 'text-slate-500'
           }`}
         >

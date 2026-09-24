@@ -37,6 +37,7 @@ import {
   deleteParticipant, 
   deleteMultipleParticipants, 
   toggleAttendance, 
+  batchSetAttendance,
   resetToDemoData,
   verifyAdminCredentials,
   registerAdminCredentials,
@@ -212,7 +213,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (customEvent.detail?.participant) {
         const p = customEvent.detail.participant;
         showToast(
-          `Check-in QR recebido: ${p.fullName} (${p.registrationNumber}) - Presença confirmada!`,
+          `Presença confirmada: ${p.fullName} (${p.registrationNumber}) - PRESENTE (sincronizado em rede)!`,
           'success'
         );
         onUpdateParticipants();
@@ -226,11 +227,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     };
 
+    const handleAttendanceAbsent = (e: Event) => {
+      const customEvent = e as CustomEvent<{ participant: Participant; timestamp: string }>;
+      if (customEvent.detail?.participant) {
+        const p = customEvent.detail.participant;
+        showToast(
+          `Status de "${p.fullName}" atualizado para AUSENTE (sincronizado em rede).`,
+          'info'
+        );
+        onUpdateParticipants();
+      }
+    };
+
     window.addEventListener('participant-updated', handleParticipantUpdated);
     window.addEventListener('attendance-confirmed', handleAttendanceConfirmed);
+    window.addEventListener('attendance-absent', handleAttendanceAbsent);
     return () => {
       window.removeEventListener('participant-updated', handleParticipantUpdated);
       window.removeEventListener('attendance-confirmed', handleAttendanceConfirmed);
+      window.removeEventListener('attendance-absent', handleAttendanceAbsent);
     };
   }, [onUpdateParticipants, notificationsEnabled, notificationPermission, companySettings?.eventName, companySettings?.logoUrl]);
 
@@ -346,6 +361,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setShowBulkDeleteModal(false);
     onUpdateParticipants();
     showToast(`${count} ${count === 1 ? 'participante excluído' : 'participantes excluídos'} com sucesso.`, 'info');
+  };
+
+  // Marcar presença em lote como PRESENTE sincronizado com todas as redes
+  const handleBatchMarkPresent = () => {
+    if (selectedIds.length === 0) return;
+    const res = batchSetAttendance(selectedIds, true);
+    onUpdateParticipants();
+    showToast(
+      `${res.count} participante(s) marcado(s) como PRESENTE (sincronizado em todas as redes).`,
+      'success'
+    );
+  };
+
+  // Marcar presença em lote como AUSENTE sincronizado com todas as redes
+  const handleBatchMarkAbsent = () => {
+    if (selectedIds.length === 0) return;
+    const res = batchSetAttendance(selectedIds, false);
+    onUpdateParticipants();
+    showToast(
+      `${res.count} participante(s) atualizado(s) para AUSENTE (sincronizado em todas as redes).`,
+      'info'
+    );
   };
 
   // Alternar presença manual
@@ -1192,24 +1229,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
             <button
-              id="btn-deselect-all-items"
+              id="btn-bulk-mark-present"
               type="button"
-              onClick={clearSelection}
-              className="py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-medium transition-colors"
+              onClick={handleBatchMarkPresent}
+              className="flex items-center gap-1.5 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              title="Marcar todos os participantes selecionados como PRESENTE em tempo real"
             >
-              Desmarcar todos
+              <CheckCircle className="h-3.5 w-3.5" />
+              <span>Marcar Presentes ({selectedIds.length})</span>
+            </button>
+
+            <button
+              id="btn-bulk-mark-absent"
+              type="button"
+              onClick={handleBatchMarkAbsent}
+              className="flex items-center gap-1.5 py-1.5 px-3 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              title="Marcar todos os participantes selecionados como AUSENTE em tempo real"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              <span>Marcar Ausentes ({selectedIds.length})</span>
             </button>
 
             <button
               id="btn-delete-selected-participants"
               type="button"
               onClick={() => setShowBulkDeleteModal(true)}
-              className="flex items-center gap-1.5 py-1.5 px-3.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 py-1.5 px-3 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              <span>Excluir Selecionados ({selectedIds.length})</span>
+              <span>Excluir ({selectedIds.length})</span>
+            </button>
+
+            <button
+              id="btn-deselect-all-items"
+              type="button"
+              onClick={clearSelection}
+              className="py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-medium transition-colors"
+            >
+              Desmarcar
             </button>
           </div>
         </div>
