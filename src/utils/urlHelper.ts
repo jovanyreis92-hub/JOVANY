@@ -128,3 +128,36 @@ export function resolvePublicRegistrationUrl(
     note: 'URL pública ativa pronta para receber cadastros de qualquer dispositivo.',
   };
 }
+
+/**
+ * Obtém a URL oficial ativa para confirmação direta de presença por leitura de QR Code.
+ * Essa URL pode ser lida tanto pelo Leitor embutido da aplicação quanto por QUALQUER câmera
+ * nativa de celular (iOS, Android, etc.) em qualquer rede (Wi-Fi, 4G, 5G).
+ */
+export function resolvePublicCheckinUrl(
+  participant: { id: string; registrationNumber?: string; fullName?: string; company?: string; eventId?: string },
+  companySettings?: Partial<CompanySettings>
+): string {
+  const regInfo = resolvePublicRegistrationUrl(companySettings);
+  try {
+    const parsed = new URL(regInfo.url);
+    parsed.searchParams.delete('tab');
+    parsed.searchParams.set('checkin', participant.id);
+    if (participant.registrationNumber) {
+      parsed.searchParams.set('mat', participant.registrationNumber);
+    }
+    if (participant.fullName) {
+      parsed.searchParams.set('nom', participant.fullName);
+    }
+    if (participant.company && participant.company !== 'Não informada') {
+      parsed.searchParams.set('emp', participant.company);
+    }
+    return parsed.toString();
+  } catch {
+    const origin = typeof window !== 'undefined' ? window.location.origin : CURRENT_DEV_APP_URL;
+    const mat = participant.registrationNumber ? `&mat=${encodeURIComponent(participant.registrationNumber)}` : '';
+    const nom = participant.fullName ? `&nom=${encodeURIComponent(participant.fullName)}` : '';
+    const emp = participant.company ? `&emp=${encodeURIComponent(participant.company)}` : '';
+    return `${origin}/?checkin=${encodeURIComponent(participant.id)}${mat}${nom}${emp}`;
+  }
+}

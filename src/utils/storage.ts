@@ -1762,6 +1762,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
   let targetId: string | null = null;
   let targetMatricula: string | null = null;
   let targetName: string | null = null;
+  let targetEmpresa: string | null = null;
 
   // 1. Tenta decodificar JSON do crachá do participante
   const jsonMatch = cleanInput.match(/\{[\s\S]*\}/);
@@ -1774,19 +1775,27 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       if (parsed.code) targetMatricula = String(parsed.code).trim();
       if (parsed.nome) targetName = String(parsed.nome).trim();
       if (parsed.name) targetName = String(parsed.name).trim();
+      if (parsed.empresa || parsed.company) targetEmpresa = String(parsed.empresa || parsed.company).trim();
     } catch {
       // ignora se não for JSON válido
     }
   }
 
-  // 2. Se for uma URL (ex: aplicativo de câmera externo lendo link direto)
+  // 2. Se for uma URL (ex: lido por aplicativo de câmera nativa do celular iOS/Android, ou leitor externo)
   try {
-    if (cleanInput.startsWith('http://') || cleanInput.startsWith('https://')) {
-      const parsedUrl = new URL(cleanInput);
-      const urlCode = parsedUrl.searchParams.get('code') || parsedUrl.searchParams.get('matricula') || parsedUrl.searchParams.get('registrationNumber');
-      const urlId = parsedUrl.searchParams.get('id');
-      if (urlCode && !targetMatricula) targetMatricula = urlCode;
+    if (cleanInput.startsWith('http://') || cleanInput.startsWith('https://') || cleanInput.includes('?checkin=') || cleanInput.includes('&checkin=')) {
+      const fullUrl = cleanInput.startsWith('http')
+        ? cleanInput
+        : `https://dummy.com/${cleanInput.startsWith('/') ? cleanInput.substring(1) : cleanInput}`;
+      const parsedUrl = new URL(fullUrl);
+      const urlId = parsedUrl.searchParams.get('checkin') || parsedUrl.searchParams.get('id');
+      const urlCode = parsedUrl.searchParams.get('mat') || parsedUrl.searchParams.get('matricula') || parsedUrl.searchParams.get('code') || parsedUrl.searchParams.get('registrationNumber');
+      const urlNom = parsedUrl.searchParams.get('nom') || parsedUrl.searchParams.get('nome') || parsedUrl.searchParams.get('name');
+      const urlEmp = parsedUrl.searchParams.get('emp') || parsedUrl.searchParams.get('empresa') || parsedUrl.searchParams.get('company');
       if (urlId && !targetId) targetId = urlId;
+      if (urlCode && !targetMatricula) targetMatricula = urlCode;
+      if (urlNom && !targetName) targetName = urlNom;
+      if (urlEmp && !targetEmpresa) targetEmpresa = urlEmp;
     }
   } catch {}
 
@@ -1819,11 +1828,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
 
     const digitsOnly = cleanInput.replace(/\D/g, '');
     const matriculaDigits = (p.registrationNumber || '').replace(/\D/g, '');
-    if (digitsOnly && matriculaDigits && digitsOnly.length >= 3 && digitsOnly === matriculaDigits) {
-      return true;
-    }
-
-    if (cleanInput.includes(p.registrationNumber) || (p.id && cleanInput.includes(p.id))) {
+    if (digitsOnly && matriculaDigits && digitsOnly === matriculaDigits) {
       return true;
     }
 
@@ -1850,6 +1855,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
           codeOrMatricula: cleanInput,
           attended: true,
           attendedAt: participant.attendedAt,
+          attendanceUpdatedAt: participant.attendanceUpdatedAt || participant.attendedAt,
         }),
       }).catch(() => {});
 
@@ -1862,6 +1868,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
             codeOrMatricula: cleanInput,
             attended: true,
             attendedAt: participant!.attendedAt,
+            attendanceUpdatedAt: participant!.attendanceUpdatedAt || participant!.attendedAt,
           }),
         }).catch(() => {});
       });
@@ -1879,6 +1886,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       ...participant,
       attended: true,
       attendedAt: now,
+      attendanceUpdatedAt: now,
     };
 
     const updated = current.map((p) => (p.id === participant!.id ? confirmedParticipant : p));
@@ -1892,7 +1900,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       })
     );
 
-    // Notifica o servidor central local
+    // Notifica o servidor central local com o objeto completo para garantir persistência e broadcast imediato
     fetch('/api/participants/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1901,6 +1909,8 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
         codeOrMatricula: cleanInput,
         attended: true,
         attendedAt: now,
+        attendanceUpdatedAt: now,
+        participant: confirmedParticipant,
       }),
     })
       .then(() => setSyncStatus('connected'))
@@ -1916,6 +1926,8 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
           codeOrMatricula: cleanInput,
           attended: true,
           attendedAt: now,
+          attendanceUpdatedAt: now,
+          participant: confirmedParticipant,
         }),
       }).catch(() => {});
     });
@@ -1927,8 +1939,71 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
     };
   }
 
-  // Se NÃO foi encontrado localmente (ex: cadastrado agora pouco em outro celular)
-  // Consulta o servidor central diretamente via API de presença
+  // Se NÃO foi encontrado localmente:
+  // 1. Tenta recuperar participante diretamente dos dados lidos pelo QR Code (seja URL ou JSON)
+  if (targetName && (targetMatricula || targetId)) {
+    const now = new Date().toISOString();
+    const settings = getCompanySettings();
+    const recoveredParticipant: Participant = {
+      id: targetId || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      fullName: targetName,
+      registrationNumber: targetMatricula || '',
+      company: targetEmpresa || 'Empresa Identificada por QR',
+      eventId: 'event_1',
+      eventName: settings.eventName || 'COZINHA SHOW',
+      createdAt: now,
+      attended: true,
+      attendedAt: now,
+      attendanceUpdatedAt: now,
+    };
+
+    const fresh = getStoredParticipants();
+    saveParticipants([recoveredParticipant, ...fresh.filter(p => p.id !== recoveredParticipant.id)]);
+
+    window.dispatchEvent(new CustomEvent('participant-updated', { detail: recoveredParticipant }));
+    window.dispatchEvent(
+      new CustomEvent('attendance-confirmed', {
+        detail: { participant: recoveredParticipant, timestamp: now, synced: true },
+      })
+    );
+
+    // Envia ao servidor para persistência e broadcast
+    fetch('/api/participants/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: recoveredParticipant.id,
+        codeOrMatricula: cleanInput,
+        attended: true,
+        attendedAt: now,
+        attendanceUpdatedAt: now,
+        participant: recoveredParticipant,
+      }),
+    }).catch(() => {});
+
+    peerDestinations.forEach((destUrl) => {
+      fetch(`${destUrl}/api/participants/attendance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: recoveredParticipant.id,
+          codeOrMatricula: cleanInput,
+          attended: true,
+          attendedAt: now,
+          attendanceUpdatedAt: now,
+          participant: recoveredParticipant,
+        }),
+      }).catch(() => {});
+    });
+
+    return {
+      status: 'success',
+      participant: recoveredParticipant,
+      message: 'Presença confirmada com sucesso via dados oficiais do QR Code!',
+    };
+  }
+
+  // 2. Consulta o servidor central diretamente via API de presença
   try {
     const res = await fetch('/api/participants/attendance', {
       method: 'POST',
@@ -2325,7 +2400,8 @@ export function initMultiDeviceSync(): () => void {
             if (deleted.has(data.id)) return;
 
             const current = getStoredParticipants();
-            const updated = current.map((p) => (p.id === data.id ? data : p));
+            const exists = current.some((p) => p.id === data.id);
+            const updated = exists ? current.map((p) => (p.id === data.id ? data : p)) : [data, ...current];
             saveParticipants(updated);
             window.dispatchEvent(new CustomEvent('participant-updated', { detail: data }));
             if (data.attended) {
@@ -2347,7 +2423,9 @@ export function initMultiDeviceSync(): () => void {
               if (deleted.has(data.participant.id)) return;
 
               const current = getStoredParticipants();
-              const updated = current.map((p) => (p.id === data.participant.id ? data.participant : p));
+              const pData = data.participant;
+              const exists = current.some((p) => p.id === pData.id);
+              const updated = exists ? current.map((p) => (p.id === pData.id ? pData : p)) : [pData, ...current];
               saveParticipants(updated);
               window.dispatchEvent(new CustomEvent('attendance-confirmed', { detail: data }));
             }
@@ -2357,7 +2435,9 @@ export function initMultiDeviceSync(): () => void {
               if (deleted.has(data.participant.id)) return;
 
               const current = getStoredParticipants();
-              const updated = current.map((p) => (p.id === data.participant.id ? data.participant : p));
+              const pData = data.participant;
+              const exists = current.some((p) => p.id === pData.id);
+              const updated = exists ? current.map((p) => (p.id === pData.id ? pData : p)) : [pData, ...current];
               saveParticipants(updated);
               window.dispatchEvent(new CustomEvent('attendance-absent', { detail: data }));
             }
@@ -2371,6 +2451,12 @@ export function initMultiDeviceSync(): () => void {
                   return partMap.get(p.id)!;
                 }
                 return p;
+              });
+              // Adiciona participantes do lote que ainda não estavam no cache local
+              data.participants.forEach((p: any) => {
+                if (!deleted.has(p.id) && !updated.some((u) => u.id === p.id)) {
+                  updated.unshift(p);
+                }
               });
               saveParticipants(updated);
               window.dispatchEvent(new Event('participants-updated'));

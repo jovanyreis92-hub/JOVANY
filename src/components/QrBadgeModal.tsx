@@ -140,8 +140,12 @@ export const QrBadgeModal: React.FC<QrBadgeModalProps> = ({
                 <span className="text-sm">Gerando QR Code...</span>
               </div>
             )}
-            <div className="mt-2 text-xs font-mono font-medium text-slate-500 tracking-wider">
-              {participant.registrationNumber}
+            <div className="mt-2 text-xs font-mono font-medium text-slate-700 tracking-wider">
+              Matrícula: {participant.registrationNumber}
+            </div>
+            <div className="mt-2 flex items-center justify-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+              <Sparkles className="h-3 w-3 shrink-0 text-emerald-600" />
+              <span>Escaneável por qualquer câmera de celular (iOS/Android) e sincronizado em rede</span>
             </div>
           </div>
 

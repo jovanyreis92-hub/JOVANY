@@ -11,8 +11,10 @@ import {
   getCompanySettings, 
   initMultiDeviceSync, 
   isAdminLoggedIn, 
-  setAdminLoggedIn 
+  setAdminLoggedIn,
+  markAttendanceByCode 
 } from './utils/storage';
+import { playSuccessBeep, playWarningBeep, playErrorBeep } from './utils/audio';
 import { applyLayoutPreferences } from './utils/theme';
 import { Header } from './components/Header';
 import { RegistrationForm } from './components/RegistrationForm';
@@ -21,7 +23,24 @@ import { QrScanner } from './components/QrScanner';
 import { RecentAttendanceLog } from './components/RecentAttendanceLog';
 import { CompanySettingsModal } from './components/CompanySettingsModal';
 import { MobileShareModal } from './components/MobileShareModal';
-import { UserPlus, ShieldCheck, CheckCircle2, Sparkles, CheckCheck, Zap, X, UserX } from 'lucide-react';
+import { 
+  UserPlus, 
+  ShieldCheck, 
+  CheckCircle2, 
+  Sparkles, 
+  CheckCheck, 
+  Zap, 
+  X, 
+  UserX,
+  Clock,
+  User,
+  Hash,
+  Building2,
+  Calendar,
+  AlertCircle,
+  QrCode,
+  ArrowRight
+} from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('register');
@@ -37,9 +56,33 @@ export default function App() {
     status: 'present' | 'absent';
   } | null>(null);
 
+  // Modal de resultado de confirmação direta por leitura de QR Code
+  const [qrCheckinResult, setQrCheckinResult] = useState<{
+    status: 'success' | 'already_checked' | 'not_found' | 'error';
+    participant?: Participant;
+    message: string;
+    timestamp: string;
+  } | null>(null);
+
   const handleSetAdminAuth = (auth: boolean) => {
     setIsAdminAuthenticated(auth);
     setAdminLoggedIn(auth);
+  };
+
+  const handleCloseQrModal = () => {
+    setQrCheckinResult(null);
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('checkin');
+        url.searchParams.delete('code');
+        url.searchParams.delete('matricula');
+        url.searchParams.delete('mat');
+        url.searchParams.delete('nom');
+        url.searchParams.delete('emp');
+        window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ''));
+      } catch {}
+    }
   };
 
   // Carrega e sincroniza os participantes
@@ -66,11 +109,40 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab');
       const eventIdParam = params.get('eventId');
+      const checkinCode = params.get('checkin') || params.get('code') || params.get('matricula') || params.get('mat');
+
       if (tabParam === 'register' || tabParam === 'admin' || tabParam === 'scanner') {
         setActiveTab(tabParam as ActiveTab);
       } else if (eventIdParam) {
         // Link único de inscrição do evento
         setActiveTab('register');
+      }
+
+      // Leitura de QR Code direta por câmera nativa de smartphone (iOS/Android/Qualquer Rede)
+      if (checkinCode) {
+        markAttendanceByCode(window.location.href).then((res) => {
+          const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setQrCheckinResult({
+            status: res.status,
+            participant: res.participant,
+            message: res.message,
+            timestamp: timeStr,
+          });
+          if (res.status === 'success') {
+            playSuccessBeep();
+            if ('vibrate' in navigator && typeof navigator.vibrate === 'function') {
+              try { navigator.vibrate([120, 60, 120]); } catch {}
+            }
+          } else if (res.status === 'already_checked') {
+            playWarningBeep();
+            if ('vibrate' in navigator && typeof navigator.vibrate === 'function') {
+              try { navigator.vibrate([200]); } catch {}
+            }
+          } else {
+            playErrorBeep();
+          }
+          reloadParticipants();
+        });
       }
     }
 
@@ -394,6 +466,148 @@ export default function App() {
         currentSettings={companySettings}
         onSaved={(newSettings) => setCompanySettings(newSettings)}
       />
+
+      {/* Modal de Validação Imediata de Presença por Leitura de Código QR */}
+      {qrCheckinResult && (
+        <div
+          id="qr-checkin-result-backdrop"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) handleCloseQrModal();
+          }}
+        >
+          <div
+            id="qr-checkin-result-card"
+            className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-scaleUp"
+          >
+            {/* Topo com cor dinâmica de acordo com o status */}
+            <div
+              className={`p-6 text-white text-center relative ${
+                qrCheckinResult.status === 'success'
+                  ? 'bg-gradient-to-br from-emerald-600 to-teal-700'
+                  : qrCheckinResult.status === 'already_checked'
+                  ? 'bg-gradient-to-br from-amber-600 to-amber-700'
+                  : 'bg-gradient-to-br from-rose-600 to-rose-700'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={handleCloseQrModal}
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                aria-label="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <div className="mx-auto w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center mb-3 shadow-inner">
+                {qrCheckinResult.status === 'success' ? (
+                  <CheckCircle2 className="h-10 w-10 text-white animate-bounce" />
+                ) : qrCheckinResult.status === 'already_checked' ? (
+                  <Clock className="h-10 w-10 text-white" />
+                ) : (
+                  <AlertCircle className="h-10 w-10 text-white" />
+                )}
+              </div>
+
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-xs font-semibold uppercase tracking-wider mb-2">
+                <QrCode className="h-3.5 w-3.5" />
+                <span>Leitura de Código QR</span>
+              </div>
+
+              <h3 className="text-2xl font-black tracking-tight">
+                {qrCheckinResult.status === 'success'
+                  ? 'PRESENÇA CONFIRMADA!'
+                  : qrCheckinResult.status === 'already_checked'
+                  ? 'PRESENÇA JÁ CONFIRMADA!'
+                  : 'PARTICIPANTE NÃO LOCALIZADO'}
+              </h3>
+              <p className="text-xs text-white/90 mt-1 max-w-xs mx-auto">
+                {qrCheckinResult.message}
+              </p>
+            </div>
+
+            {/* Corpo do Cartão com Dados do Participante */}
+            <div className="p-6 space-y-4">
+              {qrCheckinResult.participant ? (
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 font-bold">
+                      <User className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Participante</p>
+                      <h4 className="text-lg font-bold text-slate-900 leading-tight">
+                        {qrCheckinResult.participant.fullName}
+                      </h4>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Matrícula</span>
+                      <span className="font-mono font-bold text-slate-900 text-sm">
+                        {qrCheckinResult.participant.registrationNumber || 'Sem matrícula'}
+                      </span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Empresa</span>
+                      <span className="font-semibold text-slate-800 truncate block">
+                        {qrCheckinResult.participant.company || 'Não informada'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                      <span>{qrCheckinResult.participant.eventName || companySettings.eventName || 'COZINHA SHOW'}</span>
+                    </span>
+                    <span className="font-mono font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      Horário: {qrCheckinResult.timestamp}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Indicador de Sincronização em Tempo Real Multi-Rede */}
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-900 text-white text-xs">
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <p className="text-[11px] text-slate-300">
+                  Sincronizado em tempo real com todas as redes de computadores e celulares (Wi-Fi, 4G e 5G).
+                </p>
+              </div>
+
+              {/* Botões de Ação */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleCloseQrModal();
+                    setActiveTab('admin');
+                  }}
+                  className="w-full py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>Painel Geral</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCloseQrModal}
+                  className="w-full py-2.5 px-3 btn-primary-action text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <span>Concluir</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

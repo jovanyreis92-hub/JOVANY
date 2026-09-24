@@ -1,16 +1,14 @@
 import QRCode from 'qrcode';
 import { Participant, QrPayload } from '../types';
 import { getCompanySettings, getStoredEvents } from './storage';
+import { resolvePublicCheckinUrl } from './urlHelper';
 
 export function createQrPayload(participant: Participant): string {
-  const payload: QrPayload = {
-    app: 'qr-event-checkin',
-    id: participant.id,
-    matricula: participant.registrationNumber,
-    nome: participant.fullName,
-    empresa: participant.company,
-  };
-  return JSON.stringify(payload);
+  // Retorna uma URL universal com parâmetros de check-in embutidos.
+  // Permite leitura instantânea por QUALQUER câmera de smartphone (iOS/Android/4G/5G)
+  // E também por qualquer leitor de QR code ou scanner interno do sistema.
+  const settings = getCompanySettings();
+  return resolvePublicCheckinUrl(participant, settings);
 }
 
 export async function generateQrCodeDataUrl(text: string): Promise<string> {

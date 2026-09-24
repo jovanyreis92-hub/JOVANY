@@ -150,8 +150,9 @@ function forwardToPeerServers(endpoint: string, method: string, body?: any): voi
           'X-Peer-Sync': 'true',
         },
         body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(2500),
       }).catch(() => {
-        // Silencioso se o outro container não estiver ativo
+        // Silencioso se o outro container não estiver ativo ou com delay
       });
     } catch {
       // ignore
@@ -168,7 +169,7 @@ function findParticipantByCodeOrInput(input: any): any | null {
   let targetMatricula: string | null = null;
   let targetName: string | null = null;
 
-  // 1. Tenta extrair JSON (formato padrão do crachá do participante)
+  // 1. Tenta extrair JSON (formato padrão do crachá do participante legado)
   const jsonMatch = cleanInput.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try {
@@ -184,14 +185,17 @@ function findParticipantByCodeOrInput(input: any): any | null {
     }
   }
 
-  // 2. Se for URL (ex: lido por aplicativo externo de câmera ou link direto)
+  // 2. Se for URL (ex: lido por câmera nativa de celular iOS/Android, ou link direto)
   try {
-    if (cleanInput.startsWith('http://') || cleanInput.startsWith('https://')) {
-      const parsedUrl = new URL(cleanInput);
-      const urlCode = parsedUrl.searchParams.get('code') || parsedUrl.searchParams.get('matricula') || parsedUrl.searchParams.get('registrationNumber');
-      const urlId = parsedUrl.searchParams.get('id');
-      if (urlCode && !targetMatricula) targetMatricula = urlCode;
+    if (cleanInput.startsWith('http://') || cleanInput.startsWith('https://') || cleanInput.includes('?checkin=') || cleanInput.includes('&checkin=')) {
+      const fullUrl = cleanInput.startsWith('http') ? cleanInput : `https://dummy.com/${cleanInput.startsWith('/') ? cleanInput.substring(1) : cleanInput}`;
+      const parsedUrl = new URL(fullUrl);
+      const urlId = parsedUrl.searchParams.get('checkin') || parsedUrl.searchParams.get('id');
+      const urlCode = parsedUrl.searchParams.get('mat') || parsedUrl.searchParams.get('matricula') || parsedUrl.searchParams.get('code') || parsedUrl.searchParams.get('registrationNumber');
+      const urlNom = parsedUrl.searchParams.get('nom') || parsedUrl.searchParams.get('nome') || parsedUrl.searchParams.get('name');
       if (urlId && !targetId) targetId = urlId;
+      if (urlCode && !targetMatricula) targetMatricula = urlCode;
+      if (urlNom && !targetName) targetName = urlNom;
     }
   } catch {}
 
@@ -200,26 +204,27 @@ function findParticipantByCodeOrInput(input: any): any | null {
 
   return participants.find((p) => {
     if (!p) return false;
+    // Correspondência por ID exato
     if (targetId && p.id === targetId) return true;
     if (p.id === cleanInput) return true;
 
+    // Correspondência por Matrícula
     if (targetMatricula) {
       if (p.registrationNumber?.toLowerCase() === targetMatricula.toLowerCase()) return true;
       if (normalize(p.registrationNumber || '') === normalize(targetMatricula)) return true;
     }
 
+    // Correspondência por Nome Completo
     if (targetName && p.fullName?.toLowerCase() === targetName.toLowerCase()) return true;
 
+    // Correspondência direta com o input limpo
     if (p.registrationNumber?.toLowerCase() === cleanInput.toLowerCase()) return true;
     if (normalize(p.registrationNumber || '') === normInput) return true;
 
+    // Se o input for puramente numérico (ex: digitou matrícula no campo manual)
     const digitsOnly = cleanInput.replace(/\D/g, '');
     const matriculaDigits = (p.registrationNumber || '').replace(/\D/g, '');
-    if (digitsOnly && matriculaDigits && digitsOnly.length >= 3 && digitsOnly === matriculaDigits) {
-      return true;
-    }
-
-    if (cleanInput.includes(p.registrationNumber) || (p.id && cleanInput.includes(p.id))) {
+    if (digitsOnly && matriculaDigits && digitsOnly === matriculaDigits) {
       return true;
     }
 
@@ -617,7 +622,7 @@ async function startServer() {
 
   // 7. Confirmação de Presença por Leitura de QR Code ou Manual (Sincronizado Multi-Rede)
   app.post('/api/participants/attendance', (req, res) => {
-    const { id, codeOrMatricula, matricula, registrationNumber, attended, attendedAt, attendanceUpdatedAt } = req.body;
+    const { id, codeOrMatricula, matricula, registrationNumber, attended, attendedAt, attendanceUpdatedAt, participant: incomingParticipant } = req.body;
     
     let participant: any = null;
     if (id) {
@@ -627,12 +632,98 @@ async function startServer() {
       participant = findParticipantByCodeOrInput(codeOrMatricula || matricula || registrationNumber);
     }
 
+    const now = new Date().toISOString();
+
+    // Se não encontrado mas o cliente enviou o objeto completo do participante (recuperação automática instantânea)
+    if (!participant && incomingParticipant && (incomingParticipant.id || incomingParticipant.registrationNumber)) {
+      const trimmedMat = String(incomingParticipant.registrationNumber || '').replace(/\D/g, '').trim();
+      const trimmedNom = String(incomingParticipant.fullName || '').trim();
+      if (trimmedNom) {
+        participant = {
+          id: incomingParticipant.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          fullName: trimmedNom,
+          registrationNumber: trimmedMat,
+          company: incomingParticipant.company || 'Não informada',
+          eventId: incomingParticipant.eventId || 'event_1',
+          eventName: incomingParticipant.eventName || companySettings.eventName || 'COZINHA SHOW',
+          createdAt: incomingParticipant.createdAt || now,
+          attended: attended !== undefined ? Boolean(attended) : true,
+          attendedAt: attendedAt || now,
+          attendanceUpdatedAt: attendanceUpdatedAt || now,
+        };
+        participants.unshift(participant);
+        persistParticipantsToDisk(participants);
+        broadcastSSE('participant_added', participant);
+      }
+    }
+
+    // Se não encontrado mas o código lido pelo QR continha os dados estruturados do crachá oficial (JSON)
+    if (!participant && codeOrMatricula) {
+      const jsonMatch = String(codeOrMatricula).match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const nom = String(parsed.nome || parsed.name || '').trim();
+          const mat = String(parsed.matricula || parsed.registrationNumber || parsed.code || '').replace(/\D/g, '').trim();
+          if (nom) {
+            participant = {
+              id: parsed.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              fullName: nom,
+              registrationNumber: mat,
+              company: parsed.empresa || parsed.company || 'Não informada',
+              eventId: parsed.evento || parsed.eventId || 'event_1',
+              eventName: companySettings.eventName || 'COZINHA SHOW',
+              createdAt: now,
+              attended: attended !== undefined ? Boolean(attended) : true,
+              attendedAt: attendedAt || now,
+              attendanceUpdatedAt: attendanceUpdatedAt || now,
+            };
+            participants.unshift(participant);
+            persistParticipantsToDisk(participants);
+            broadcastSSE('participant_added', participant);
+          }
+        } catch {}
+      }
+    }
+
+    // Se não encontrado mas o código lido pelo QR continha URL estruturada com dados do participante
+    if (!participant && codeOrMatricula && (String(codeOrMatricula).startsWith('http://') || String(codeOrMatricula).startsWith('https://') || String(codeOrMatricula).includes('checkin='))) {
+      try {
+        const fullUrl = String(codeOrMatricula).startsWith('http')
+          ? String(codeOrMatricula)
+          : `https://dummy.com/${String(codeOrMatricula).startsWith('/') ? String(codeOrMatricula).substring(1) : String(codeOrMatricula)}`;
+        const parsedUrl = new URL(fullUrl);
+        const urlId = parsedUrl.searchParams.get('checkin') || parsedUrl.searchParams.get('id');
+        const urlMat = parsedUrl.searchParams.get('mat') || parsedUrl.searchParams.get('matricula') || parsedUrl.searchParams.get('code') || parsedUrl.searchParams.get('registrationNumber');
+        const urlNom = parsedUrl.searchParams.get('nom') || parsedUrl.searchParams.get('nome') || parsedUrl.searchParams.get('name');
+        const urlEmp = parsedUrl.searchParams.get('emp') || parsedUrl.searchParams.get('empresa') || parsedUrl.searchParams.get('company');
+
+        if (urlNom && (urlId || urlMat)) {
+          participant = {
+            id: urlId || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            fullName: urlNom.trim(),
+            registrationNumber: (urlMat || '').replace(/\D/g, '').trim(),
+            company: (urlEmp || 'Não informada').trim(),
+            eventId: 'event_1',
+            eventName: companySettings.eventName || 'COZINHA SHOW',
+            createdAt: now,
+            attended: attended !== undefined ? Boolean(attended) : true,
+            attendedAt: attendedAt || now,
+            attendanceUpdatedAt: attendanceUpdatedAt || now,
+          };
+          participants.unshift(participant);
+          persistParticipantsToDisk(participants);
+          broadcastSSE('participant_added', participant);
+        }
+      } catch {}
+    }
+
     if (!participant) {
       return res.status(404).json({ 
         success: false, 
         status: 'not_found', 
         error: 'Participante não encontrado no sistema.',
-        message: 'Código de participante ou matrícula não encontrado.' 
+        message: 'Código de participante ou matrícula não encontrado. Verifique se o participante está cadastrado.' 
       });
     }
 
@@ -652,7 +743,6 @@ async function startServer() {
       });
     }
 
-    const now = new Date().toISOString();
     participant.attended = attended !== undefined ? Boolean(attended) : true;
     participant.attendedAt = participant.attended ? (attendedAt || now) : null;
     participant.attendanceUpdatedAt = attendanceUpdatedAt || now;
