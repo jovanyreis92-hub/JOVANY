@@ -4,23 +4,27 @@ import { getCompanySettings, getStoredEvents } from './storage';
 import { resolvePublicCheckinUrl } from './urlHelper';
 
 export function createQrPayload(participant: Participant): string {
-  // Retorna uma URL universal com parâmetros de check-in embutidos.
-  // Permite leitura instantânea por QUALQUER câmera de smartphone (iOS/Android/4G/5G)
-  // E também por qualquer leitor de QR code ou scanner interno do sistema.
-  const settings = getCompanySettings();
-  return resolvePublicCheckinUrl(participant, settings);
+  // Gera código ultra-compacto oficial para leitura veloz com a câmera do leitor do aplicativo
+  // Formato: CP:<id>:<matricula>:<nome>:<empresa>:<evento>
+  // Payload direto sem inchaço de URL encoding reduz o QR Code para versão mínima (módulos gigantes),
+  // garantindo que todos os dados do participante (incluindo evento) sejam lidos e exibidos 100% offline.
+  const cleanName = (participant.fullName || '').trim().replace(/[:|]/g, ' ');
+  const cleanCompany = (participant.company || '').trim().replace(/[:|]/g, ' ');
+  const cleanMatricula = (participant.registrationNumber || '').trim().replace(/[:|]/g, '');
+  const cleanEvent = (participant.eventName || '').trim().replace(/[:|]/g, ' ');
+  return `CP:${participant.id}:${cleanMatricula}:${cleanName}:${cleanCompany}:${cleanEvent}`;
 }
 
 export async function generateQrCodeDataUrl(text: string): Promise<string> {
   try {
     const dataUrl = await QRCode.toDataURL(text, {
-      width: 400,
-      margin: 2,
+      width: 480,
+      margin: 1, // Margem mínima de 1 módulo maximiza o tamanho dos blocos de dados
       color: {
-        dark: '#0f172a',
-        light: '#ffffff',
+        dark: '#000000', // Preto puro 100% opaco para máxima taxa de contraste contra luz solar e reflexos
+        light: '#ffffff', // Fundo branco puro 100% opaco sem artefatos
       },
-      errorCorrectionLevel: 'H',
+      errorCorrectionLevel: 'M', // Nível M (15% de redundância) protege contra reflexos e riscos sem adensar o QR
     });
     return dataUrl;
   } catch (err) {
@@ -37,8 +41,8 @@ export async function downloadQrCodeImage(participant: Participant): Promise<voi
   const dataUrl = await generateQrCodeDataUrl(payload);
 
   const link = document.createElement('a');
-  const safeName = participant.fullName.toLowerCase().replace(/[^a-z0-9]/g, '_');
-  link.download = `qrcode_${participant.registrationNumber}_${safeName}.png`;
+  const safeName = (participant.fullName || 'participante').toLowerCase().replace(/[^a-z0-9]/g, '_');
+  link.download = `qrcode_${participant.registrationNumber || 'registro'}_${safeName}.png`;
   link.href = dataUrl;
   document.body.appendChild(link);
   link.click();
@@ -188,20 +192,24 @@ export async function downloadBadgeImage(participant: Participant): Promise<void
   ctx.stroke();
 
   // Rodapé de segurança
+  ctx.fillStyle = '#0284c7';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillText('LEITURA EXCLUSIVA NO LEITOR DO APLICATIVO', width / 2, 735);
+
   ctx.fillStyle = '#64748b';
   ctx.font = '12px sans-serif';
-  ctx.fillText(`Identificador Único: ${participant.id}`, width / 2, 745);
-  ctx.fillText(`Cadastrado em: ${new Date(participant.createdAt).toLocaleDateString('pt-BR')}`, width / 2, 770);
+  ctx.fillText(`Identificador Único: ${participant.id}`, width / 2, 760);
+  ctx.fillText(`Cadastrado em: ${new Date(participant.createdAt).toLocaleDateString('pt-BR')}`, width / 2, 785);
 
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = '11px sans-serif';
-  ctx.fillText('Válido para entrada e registro de frequência', width / 2, 820);
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.fillText('Aproxime da câmera do leitor do sistema (Funciona Online ou Offline)', width / 2, 820);
 
   // Baixa a imagem gerada
   const dataUrl = canvas.toDataURL('image/png');
   const link = document.createElement('a');
-  const safeName = participant.fullName.toLowerCase().replace(/[^a-z0-9]/g, '_');
-  link.download = `credencial_${participant.registrationNumber}_${safeName}.png`;
+  const safeName = (participant.fullName || 'participante').toLowerCase().replace(/[^a-z0-9]/g, '_');
+  link.download = `credencial_${participant.registrationNumber || 'registro'}_${safeName}.png`;
   link.href = dataUrl;
   document.body.appendChild(link);
   link.click();

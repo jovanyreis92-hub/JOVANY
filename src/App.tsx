@@ -39,7 +39,8 @@ import {
   Calendar,
   AlertCircle,
   QrCode,
-  ArrowRight
+  ArrowRight,
+  Camera
 } from 'lucide-react';
 
 export default function App() {
@@ -388,12 +389,12 @@ export default function App() {
       </main>
 
       {/* Barra de Navegação Inferior Fixa para Dispositivos Móveis */}
-      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-2 shadow-lg flex items-center justify-around">
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-2 shadow-lg flex items-center justify-around">
         <button
           id="mobile-tab-register"
           type="button"
           onClick={() => setActiveTab('register')}
-          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-4 rounded-lg transition-colors cursor-pointer ${
+          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
             activeTab === 'register' ? 'text-primary-theme font-bold' : 'text-slate-500'
           }`}
         >
@@ -402,10 +403,24 @@ export default function App() {
         </button>
 
         <button
+          id="mobile-tab-scanner"
+          type="button"
+          onClick={() => setActiveTab('scanner')}
+          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
+            activeTab === 'scanner' ? 'text-emerald-600 font-bold' : 'text-slate-500'
+          }`}
+        >
+          <div className="h-7 w-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+            <Camera className="h-4 w-4" />
+          </div>
+          <span className="font-semibold text-emerald-700">Leitor QR</span>
+        </button>
+
+        <button
           id="mobile-tab-admin"
           type="button"
           onClick={() => setActiveTab('admin')}
-          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-4 rounded-lg transition-colors cursor-pointer ${
+          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
             activeTab === 'admin' ? 'text-primary-theme font-bold' : 'text-slate-500'
           }`}
         >

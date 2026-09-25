@@ -4,7 +4,7 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -54,9 +54,19 @@ function persistDeletedIdsToDisk(): void {
   writeJsonFile(DELETED_PARTICIPANTS_FILE, Array.from(deletedParticipantIds));
 }
 
-// Salva participantes de forma atômica no arquivo principal e no backup de redundância (filtrando deletados)
+function isValidParticipant(p: any): boolean {
+  return Boolean(
+    p &&
+    p.id &&
+    p.id !== 'attendance-batch' &&
+    p.fullName &&
+    !deletedParticipantIds.has(p.id)
+  );
+}
+
+// Salva participantes de forma atômica no arquivo principal e no backup de redundância (filtrando deletados e inválidos)
 function persistParticipantsToDisk(parts: any[]): void {
-  const filtered = parts.filter((p) => p && p.id && !deletedParticipantIds.has(p.id));
+  const filtered = parts.filter(isValidParticipant);
   writeJsonFile(PARTICIPANTS_FILE, filtered);
   writeJsonFile(PARTICIPANTS_BACKUP_FILE, filtered);
 }
@@ -66,10 +76,9 @@ const primaryStored = readJsonFile<any[]>(PARTICIPANTS_FILE, []);
 const backupStored = readJsonFile<any[]>(PARTICIPANTS_BACKUP_FILE, []);
 const mergedMap = new Map<string, any>();
 
-// Une os registros por ID, ignorando estritamente qualquer registro excluído
+// Une os registros por ID, ignorando estritamente qualquer registro excluído ou inválido
 [...backupStored, ...primaryStored].forEach((p) => {
-  if (!p || !p.id) return;
-  if (deletedParticipantIds.has(p.id)) return;
+  if (!isValidParticipant(p)) return;
   const key = p.id;
   const existing = mergedMap.get(key);
   if (!existing) {
@@ -87,9 +96,13 @@ const mergedMap = new Map<string, any>();
   }
 });
 
-let participants: any[] = Array.from(mergedMap.values()).filter(p => !deletedParticipantIds.has(p.id));
+let participants: any[] = Array.from(mergedMap.values()).filter(isValidParticipant);
 // Atualiza os dois arquivos no disco para garantir paridade imediata e limpeza de deletados
 persistParticipantsToDisk(participants);
+function persistCompanySettingsToDisk(settings: any): void {
+  writeJsonFile(SETTINGS_FILE, settings);
+}
+
 let companySettings: any = readJsonFile<any>(SETTINGS_FILE, {
   companyName: 'Minha Empresa',
   eventName: 'COZINHA SHOW',
@@ -98,10 +111,17 @@ let companySettings: any = readJsonFile<any>(SETTINGS_FILE, {
   adminPassword: '1234',
   fontFamily: 'inter',
   layoutScale: 'normal',
-  publicAppUrl: 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app',
+  publicAppUrl: '',
   creatorName: 'Jovany Reis',
   creatorSignature: 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições',
 });
+
+// Remove URL de servidor estéril legada se presente
+if (companySettings.publicAppUrl && companySettings.publicAppUrl.includes('rihuh2lzyxgzrc2qmh3tyj')) {
+  companySettings.publicAppUrl = '';
+  persistCompanySettingsToDisk(companySettings);
+}
+
 let eventsList: any[] = readJsonFile<any[]>(EVENTS_FILE, [
   {
     id: 'event_1',
@@ -125,22 +145,25 @@ let nextClientId = 1;
 
 function broadcastSSE(type: string, data: any) {
   const payload = `data: ${JSON.stringify({ type, data })}\n\n`;
-  sseClients.forEach((client) => {
+  sseClients = sseClients.filter((client) => {
     try {
       client.res.write(payload);
+      if (typeof (client.res as any).flush === 'function') {
+        (client.res as any).flush();
+      }
+      return true;
     } catch {
-      // Ignora erro de socket desconectado
+      return false;
     }
   });
 }
 
-// Endpoints dos servidores de nuvem para sincronização bidirecional em tempo real
-const CURRENT_DEV_APP_URL = 'https://ais-dev-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app';
-const SHARED_CLOUD_APP_URL = 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app';
-const PEER_SERVERS = [CURRENT_DEV_APP_URL, SHARED_CLOUD_APP_URL];
+// Lista dinâmica de servidores pares para redundância opcional
+const PEER_SERVERS: string[] = [];
 
-// Helper para replicar alterações imediatamente entre os nós da nuvem (evitando loops com X-Peer-Sync)
+// Helper para replicar alterações imediatamente entre instâncias configuradas
 function forwardToPeerServers(endpoint: string, method: string, body?: any): void {
+  if (PEER_SERVERS.length === 0) return;
   PEER_SERVERS.forEach((peerUrl) => {
     try {
       fetch(`${peerUrl}${endpoint}`, {
@@ -150,13 +173,9 @@ function forwardToPeerServers(endpoint: string, method: string, body?: any): voi
           'X-Peer-Sync': 'true',
         },
         body: body ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(2500),
-      }).catch(() => {
-        // Silencioso se o outro container não estiver ativo ou com delay
-      });
-    } catch {
-      // ignore
-    }
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => {});
+    } catch {}
   });
 }
 
@@ -168,6 +187,20 @@ function findParticipantByCodeOrInput(input: any): any | null {
   let targetId: string | null = null;
   let targetMatricula: string | null = null;
   let targetName: string | null = null;
+
+  // 0. Formato ultra-compacto oficial para leitor do aplicativo (CP:id:mat:nome:emp ou CHK:...)
+  if (cleanInput.startsWith('CP:') || cleanInput.startsWith('CHK:')) {
+    const parts = cleanInput.split(':');
+    if (parts[1]) targetId = parts[1].trim();
+    if (parts[2]) targetMatricula = parts[2].trim();
+    if (parts[3]) {
+      try {
+        targetName = decodeURIComponent(parts[3]).trim();
+      } catch {
+        targetName = parts[3].trim();
+      }
+    }
+  }
 
   // 1. Tenta extrair JSON (formato padrão do crachá do participante legado)
   const jsonMatch = cleanInput.match(/\{[\s\S]*\}/);
@@ -210,15 +243,15 @@ function findParticipantByCodeOrInput(input: any): any | null {
 
     // Correspondência por Matrícula
     if (targetMatricula) {
-      if (p.registrationNumber?.toLowerCase() === targetMatricula.toLowerCase()) return true;
+      if ((p.registrationNumber || '').toLowerCase() === (targetMatricula || '').toLowerCase()) return true;
       if (normalize(p.registrationNumber || '') === normalize(targetMatricula)) return true;
     }
 
     // Correspondência por Nome Completo
-    if (targetName && p.fullName?.toLowerCase() === targetName.toLowerCase()) return true;
+    if (targetName && (p.fullName || '').toLowerCase() === (targetName || '').toLowerCase()) return true;
 
     // Correspondência direta com o input limpo
-    if (p.registrationNumber?.toLowerCase() === cleanInput.toLowerCase()) return true;
+    if ((p.registrationNumber || '').toLowerCase() === (cleanInput || '').toLowerCase()) return true;
     if (normalize(p.registrationNumber || '') === normInput) return true;
 
     // Se o input for puramente numérico (ex: digitou matrícula no campo manual)
@@ -326,7 +359,7 @@ async function startServer() {
         // Se for o mesmo participante (mesmo id ou mesmo nome), atualiza os dados e retorna sucesso idempotente
         if (
           (data.id && existingSameMatricula.id === data.id) ||
-          existingSameMatricula.fullName.trim().toLowerCase() === trimmedName.toLowerCase()
+          (existingSameMatricula.fullName || '').trim().toLowerCase() === (trimmedName || '').toLowerCase()
         ) {
           if (data.company && (!existingSameMatricula.company || existingSameMatricula.company === 'Não informada')) {
             existingSameMatricula.company = String(data.company).trim();
@@ -347,7 +380,7 @@ async function startServer() {
       // Se já existir com o mesmo nome exato no mesmo evento
       const existingSameName = participants.find(
         (p) =>
-          p.fullName.trim().toLowerCase() === trimmedName.toLowerCase() &&
+          (p.fullName || '').trim().toLowerCase() === (trimmedName || '').toLowerCase() &&
           (p.eventId || 'event_1') === targetEventId
       );
       if (existingSameName) {
@@ -466,12 +499,16 @@ async function startServer() {
             }
           }
 
-          if (item.company && (!current.company || current.company === 'Não informada')) {
+          if (item.company && current.company !== item.company) {
             current.company = item.company;
             updatedItem = true;
           }
-          if (item.fullName && current.fullName !== item.fullName && item.fullName.length > current.fullName.length) {
+          if (item.fullName && current.fullName !== item.fullName) {
             current.fullName = item.fullName;
+            updatedItem = true;
+          }
+          if (item.registrationNumber && current.registrationNumber !== item.registrationNumber) {
+            current.registrationNumber = item.registrationNumber;
             updatedItem = true;
           }
           if (updatedItem) {
@@ -502,23 +539,53 @@ async function startServer() {
     }
   });
 
-  // 5. Atualizar participante existente
-  app.put('/api/participants/:id', (req, res) => {
+  // 5. Atualizar participante existente (Cadastro, Dados Pessoais ou Status de Presença)
+  const handleUpdateParticipant = (req: express.Request, res: express.Response) => {
     const { id } = req.params;
     const index = participants.findIndex((p) => p.id === id);
+    const now = new Date().toISOString();
+
+    let updated: any;
     if (index === -1) {
-      return res.status(404).json({ error: 'Participante não encontrado.' });
+      // Se não existia ainda nesta instância da nuvem, cria o registro (resiliência entre múltiplos servidores e redes)
+      updated = {
+        ...req.body,
+        id,
+        createdAt: req.body.createdAt || now,
+        attended: req.body.attended !== undefined ? Boolean(req.body.attended) : false,
+        attendedAt: req.body.attended ? (req.body.attendedAt || now) : null,
+        attendanceUpdatedAt: req.body.attendanceUpdatedAt || now,
+      };
+      participants.unshift(updated);
+      persistParticipantsToDisk(participants);
+      broadcastSSE('participant_added', updated);
+    } else {
+      const prev = participants[index];
+      const attendedChanged = typeof req.body.attended === 'boolean' && req.body.attended !== prev.attended;
+      const newAttended = typeof req.body.attended === 'boolean' ? req.body.attended : prev.attended;
+
+      updated = {
+        ...prev,
+        ...req.body,
+        id,
+        attended: newAttended,
+        attendedAt: newAttended ? (req.body.attendedAt || prev.attendedAt || now) : null,
+        attendanceUpdatedAt: req.body.attendanceUpdatedAt || (attendedChanged ? now : prev.attendanceUpdatedAt || now),
+      };
+
+      participants[index] = updated;
+      persistParticipantsToDisk(participants);
+      broadcastSSE('participant_updated', updated);
+
+      if (attendedChanged) {
+        broadcastSSE('attendance_updated', updated);
+        if (newAttended) {
+          broadcastSSE('attendance_confirmed', { participant: updated, timestamp: updated.attendedAt, serverTime: now });
+        } else {
+          broadcastSSE('attendance_absent', { participant: updated, timestamp: now, serverTime: now });
+        }
+      }
     }
-
-    const updated = {
-      ...participants[index],
-      ...req.body,
-      id,
-    };
-
-    participants[index] = updated;
-    persistParticipantsToDisk(participants);
-    broadcastSSE('participant_updated', updated);
 
     const isPeerSync = req.headers['x-peer-sync'] === 'true';
     if (!isPeerSync) {
@@ -526,7 +593,10 @@ async function startServer() {
     }
 
     res.json({ success: true, participant: updated });
-  });
+  };
+
+  app.put('/api/participants/:id', handleUpdateParticipant);
+  app.post('/api/participants/:id', handleUpdateParticipant);
 
   // 6. Toggle presença manual (suporta Presente e Ausente sincronizado atômico em todas as redes)
   app.post('/api/participants/:id/toggle', (req, res) => {
@@ -549,6 +619,7 @@ async function startServer() {
     participant.attendanceUpdatedAt = req.body?.attendanceUpdatedAt || now;
 
     persistParticipantsToDisk(participants);
+    broadcastSSE('participant_updated', participant);
     broadcastSSE('attendance_updated', participant);
     if (participant.attended) {
       broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt, serverTime: now });
@@ -568,22 +639,57 @@ async function startServer() {
     res.json({ success: true, participant });
   });
 
-  // 6.1 Atualização de Presença em Lote (Marcar vários como Presente ou Ausente sincronizado em todas as redes)
+  // 6.1 Atualização de Presença em Lote (Suporta tanto { ids, attended } quanto { items } da fila offline)
   app.post('/api/participants/attendance-batch', (req, res) => {
     try {
-      const { ids, attended, timestamp } = req.body;
-      if (!Array.isArray(ids) || ids.length === 0 || typeof attended !== 'boolean') {
-        return res.status(400).json({ error: 'IDs e status attended são obrigatórios.' });
+      const now = new Date().toISOString();
+      const { ids, attended, timestamp, items } = req.body;
+
+      // Caso 1: Lote da fila offline { items: [{ id, attended, attendedAt, ... }] }
+      if (Array.isArray(items) && items.length > 0) {
+        let updatedCount = 0;
+        const updatedParticipants: any[] = [];
+
+        items.forEach((item) => {
+          if (!item) return;
+          const participant = findParticipantByCodeOrInput(item.id || item.codeOrMatricula || item.registrationNumber);
+          if (participant) {
+            participant.attended = item.attended !== undefined ? Boolean(item.attended) : true;
+            participant.attendedAt = participant.attended ? (item.attendedAt || now) : null;
+            participant.attendanceUpdatedAt = item.attendanceUpdatedAt || now;
+            updatedParticipants.push(participant);
+            updatedCount++;
+          }
+        });
+
+        if (updatedCount > 0) {
+          persistParticipantsToDisk(participants);
+          updatedParticipants.forEach((p) => {
+            broadcastSSE('attendance_updated', p);
+            if (p.attended) {
+              broadcastSSE('attendance_confirmed', { participant: p, timestamp: p.attendedAt, serverTime: now });
+            } else {
+              broadcastSSE('attendance_absent', { participant: p, timestamp: now, serverTime: now });
+            }
+          });
+        }
+
+        console.log(`[SERVER] Sincronização offline concluída: ${updatedCount} presenças sincronizadas.`);
+        return res.json({ success: true, count: updatedCount, processedCount: updatedCount });
       }
 
-      const now = timestamp || new Date().toISOString();
+      // Caso 2: Lote do Painel Admin { ids: [...], attended: boolean }
+      if (!Array.isArray(ids) || ids.length === 0 || typeof attended !== 'boolean') {
+        return res.status(400).json({ error: 'Formato inválido para lote de presença.' });
+      }
+
       const idSet = new Set(ids);
       const updatedList: any[] = [];
 
       participants.forEach((p) => {
         if (idSet.has(p.id)) {
           p.attended = attended;
-          p.attendedAt = attended ? now : null;
+          p.attendedAt = attended ? (timestamp || now) : null;
           p.attendanceUpdatedAt = now;
           updatedList.push(p);
         }
@@ -594,14 +700,14 @@ async function startServer() {
         broadcastSSE('attendance_batch_updated', {
           ids,
           attended,
-          timestamp: now,
+          timestamp: timestamp || now,
           participants: updatedList,
         });
 
         updatedList.forEach((p) => {
           broadcastSSE('attendance_updated', p);
           if (attended) {
-            broadcastSSE('attendance_confirmed', { participant: p, timestamp: now, serverTime: now });
+            broadcastSSE('attendance_confirmed', { participant: p, timestamp: p.attendedAt, serverTime: now });
           } else {
             broadcastSSE('attendance_absent', { participant: p, timestamp: now, serverTime: now });
           }
@@ -647,6 +753,40 @@ async function startServer() {
           eventId: incomingParticipant.eventId || 'event_1',
           eventName: incomingParticipant.eventName || companySettings.eventName || 'COZINHA SHOW',
           createdAt: incomingParticipant.createdAt || now,
+          attended: attended !== undefined ? Boolean(attended) : true,
+          attendedAt: attendedAt || now,
+          attendanceUpdatedAt: attendanceUpdatedAt || now,
+        };
+        participants.unshift(participant);
+        persistParticipantsToDisk(participants);
+        broadcastSSE('participant_added', participant);
+      }
+    }
+
+    // Se não encontrado mas o código lido pelo QR continha formato ultra-compacto oficial (CP:id:mat:nome:emp)
+    if (!participant && codeOrMatricula && (String(codeOrMatricula).startsWith('CP:') || String(codeOrMatricula).startsWith('CHK:'))) {
+      const parts = String(codeOrMatricula).split(':');
+      const cId = parts[1]?.trim();
+      const cMat = parts[2]?.trim() || '';
+      let cNom = '';
+      let cEmp = 'Não informada';
+      try {
+        if (parts[3]) cNom = decodeURIComponent(parts[3]).trim();
+        if (parts[4]) cEmp = decodeURIComponent(parts[4]).trim();
+      } catch {
+        cNom = parts[3]?.trim() || '';
+        cEmp = parts[4]?.trim() || 'Não informada';
+      }
+
+      if (cNom || cMat || cId) {
+        participant = {
+          id: cId || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          fullName: cNom || `Participante ${cMat}`,
+          registrationNumber: cMat,
+          company: cEmp,
+          eventId: 'event_1',
+          eventName: companySettings.eventName || 'COZINHA SHOW',
+          createdAt: now,
           attended: attended !== undefined ? Boolean(attended) : true,
           attendedAt: attendedAt || now,
           attendanceUpdatedAt: attendanceUpdatedAt || now,

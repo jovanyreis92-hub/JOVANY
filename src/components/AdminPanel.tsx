@@ -30,7 +30,12 @@ import {
   Pencil,
   Sparkles,
   Share2,
-  Upload
+  Upload,
+  ArrowUpDown,
+  ArrowUpAZ,
+  ArrowDownAZ,
+  ArrowDownZA,
+  Building
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem, UserAccount } from '../types';
 import { 
@@ -46,7 +51,9 @@ import {
   syncWithServer,
   getStoredUsers,
   registerNewUser,
-  getCurrentUser
+  getCurrentUser,
+  sortParticipantsAlphabetically,
+  getRegisteredCompaniesAlphabetical
 } from '../utils/storage';
 import { exportToExcel, exportToPDF } from '../utils/export';
 import {
@@ -126,6 +133,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Filtros e busca
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent'>('all');
+  const [companyFilter, setCompanyFilter] = useState<string>('all');
+
+  // Ordenação Alfabética do Cadastro (Por padrão: Nome A-Z)
+  const [sortCriterion, setSortCriterion] = useState<
+    'name_asc' | 'name_desc' | 'company_asc' | 'company_desc' | 'registration_asc' | 'recent'
+  >('name_asc');
 
   // Modal de visualização / download de QR
   const [selectedParticipantForQr, setSelectedParticipantForQr] = useState<Participant | null>(null);
@@ -293,8 +306,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     e.preventDefault();
     setRegError(null);
 
-    const cleanUser = regUsername.trim().toLowerCase();
-    const cleanPass = regPassword.trim();
+    const cleanUser = (regUsername || '').trim().toLowerCase();
+    const cleanPass = (regPassword || '').trim();
 
     if (!cleanUser || cleanUser.length < 3) {
       setRegError('O login (nome de usuário) deve conter pelo menos 3 caracteres.');
@@ -396,15 +409,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     );
   };
 
-  // Filtragem dos participantes
+  // Lista de empresas cadastradas sem duplicidade e em ordem alfabética A-Z
+  const registeredCompanies = useMemo(() => {
+    return getRegisteredCompaniesAlphabetical();
+  }, [participants]);
+
+  // Filtragem e Ordenação Alfabética dos participantes
   const filteredParticipants = useMemo(() => {
-    return participants.filter((p) => {
+    const term = (searchTerm || '').trim().toLowerCase();
+    const filtered = participants.filter((p) => {
+      if (!p) return false;
       // Filtro de busca
       const matchesSearch =
-        p.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.registrationNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.eventName && p.eventName.toLowerCase().includes(searchTerm.toLowerCase()));
+        !term ||
+        (p.fullName || '').toLowerCase().includes(term) ||
+        (p.registrationNumber || '').toLowerCase().includes(term) ||
+        (p.company || '').toLowerCase().includes(term) ||
+        (p.eventName ? (p.eventName || '').toLowerCase().includes(term) : false);
 
       // Filtro de status
       const matchesStatus =
@@ -421,9 +442,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           : p.eventId === eventFilter ||
             (!p.eventId && eventsList.find((e) => e.id === eventFilter)?.active);
 
-      return matchesSearch && matchesStatus && matchesEvent;
+      // Filtro de empresa
+      const matchesCompany =
+        companyFilter === 'all'
+          ? true
+          : (p.company || '').trim().toLowerCase() === companyFilter.trim().toLowerCase();
+
+      return matchesSearch && matchesStatus && matchesEvent && matchesCompany;
     });
-  }, [participants, searchTerm, statusFilter, eventFilter, eventsList]);
+
+    // Ordenação do Cadastro
+    if (sortCriterion === 'name_asc') {
+      return sortParticipantsAlphabetically(filtered, 'name', 'asc');
+    }
+    if (sortCriterion === 'name_desc') {
+      return sortParticipantsAlphabetically(filtered, 'name', 'desc');
+    }
+    if (sortCriterion === 'company_asc') {
+      return sortParticipantsAlphabetically(filtered, 'company', 'asc');
+    }
+    if (sortCriterion === 'company_desc') {
+      return sortParticipantsAlphabetically(filtered, 'company', 'desc');
+    }
+    if (sortCriterion === 'registration_asc') {
+      return sortParticipantsAlphabetically(filtered, 'registration', 'asc');
+    }
+    return sortParticipantsAlphabetically(filtered, 'recent', 'asc');
+  }, [participants, searchTerm, statusFilter, eventFilter, companyFilter, eventsList, sortCriterion]);
 
   // Manipulação da seleção múltipla
   const isAllFilteredSelected =
@@ -490,7 +535,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (eventFilter !== 'all') {
       const targetEvent = eventsList.find((e) => e.id === eventFilter);
       if (targetEvent) {
-        return `lista-presenca-${targetEvent.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+        return `lista-presenca-${(targetEvent.name || 'evento').toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
       }
     }
     return 'lista-presenca-geral';
@@ -1207,6 +1252,93 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       </div>
 
+      {/* Barra de Ordenação Alfabética do Cadastro (Nome e Empresa) */}
+      <div className="bg-slate-50/90 p-3 sm:p-4 rounded-2xl border border-slate-200/90 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-2xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+            <ArrowUpDown className="h-3.5 w-3.5 text-primary-theme" />
+            <span>Ordem Alfabética:</span>
+          </span>
+
+          {/* Botão Rápido 1: Ordem Alfabética por Nome de Participante */}
+          <button
+            id="btn-sort-name-az"
+            type="button"
+            onClick={() => setSortCriterion((prev) => (prev === 'name_asc' ? 'name_desc' : 'name_asc'))}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
+              sortCriterion === 'name_asc'
+                ? 'bg-sky-600 text-white ring-2 ring-sky-400/40 shadow-sky-600/20'
+                : sortCriterion === 'name_desc'
+                ? 'bg-sky-800 text-white'
+                : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
+            }`}
+            title="Ordenar participantes em ordem alfabética por Nome (A-Z)"
+          >
+            {sortCriterion === 'name_desc' ? <ArrowDownZA className="h-3.5 w-3.5" /> : <ArrowDownAZ className="h-3.5 w-3.5" />}
+            <span>Nome ({sortCriterion === 'name_desc' ? 'Z→A' : 'A→Z'})</span>
+          </button>
+
+          {/* Botão Rápido 2: Ordem Alfabética por Empresa */}
+          <button
+            id="btn-sort-company-az"
+            type="button"
+            onClick={() => setSortCriterion((prev) => (prev === 'company_asc' ? 'company_desc' : 'company_asc'))}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
+              sortCriterion === 'company_asc'
+                ? 'bg-emerald-600 text-white ring-2 ring-emerald-400/40 shadow-emerald-600/20'
+                : sortCriterion === 'company_desc'
+                ? 'bg-emerald-800 text-white'
+                : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
+            }`}
+            title="Ordenar participantes em ordem alfabética por Empresa (A-Z)"
+          >
+            <Building2 className="h-3.5 w-3.5" />
+            <span>Empresa ({sortCriterion === 'company_desc' ? 'Z→A' : 'A→Z'})</span>
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Seletor de Empresa Alfabética */}
+          {registeredCompanies.length > 0 && (
+            <div className="flex items-center gap-1 bg-white px-2.5 py-1.5 rounded-xl border border-slate-300">
+              <Building className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+              <select
+                id="select-company-filter"
+                value={companyFilter}
+                onChange={(e) => setCompanyFilter(e.target.value)}
+                className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[170px] truncate"
+                title="Filtrar por empresa cadastrada em ordem alfabética"
+              >
+                <option value="all">Todas as Empresas ({registeredCompanies.length})</option>
+                {registeredCompanies.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Dropdown de Critérios de Ordenação */}
+          <div className="flex items-center gap-1 bg-white px-2.5 py-1.5 rounded-xl border border-slate-300">
+            <label htmlFor="select-sort-criterion" className="sr-only">Critério de ordenação</label>
+            <select
+              id="select-sort-criterion"
+              value={sortCriterion}
+              onChange={(e) => setSortCriterion(e.target.value as any)}
+              className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
+            >
+              <option value="name_asc">Nome do Participante (A → Z)</option>
+              <option value="name_desc">Nome do Participante (Z → A)</option>
+              <option value="company_asc">Empresa (A → Z)</option>
+              <option value="company_desc">Empresa (Z → A)</option>
+              <option value="registration_asc">Nº de Matrícula (Crescente)</option>
+              <option value="recent">Data de Cadastro (Recentes)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       {/* Barra de Ação para Excluir Vários Selecionados */}
       {selectedIds.length > 0 && (
         <div
@@ -1276,7 +1408,141 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Tabela de Participantes */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Visualização Otimizada para Celulares e Smartphones (Qualquer Rede e Modelo) */}
+        <div className="block md:hidden">
+          {/* Barra de seleção rápida para celular */}
+          <div className="p-3 bg-slate-900 text-white flex items-center justify-between text-xs border-b border-slate-800">
+            <label className="flex items-center gap-2 cursor-pointer font-semibold">
+              <input
+                type="checkbox"
+                checked={isAllFilteredSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = isSomeFilteredSelected;
+                }}
+                onChange={toggleSelectAllFiltered}
+                className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-sky-500 focus:ring-sky-400 cursor-pointer"
+              />
+              <span>Selecionar Todos ({filteredParticipants.length})</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setSortCriterion(prev => prev === 'name_asc' ? 'company_asc' : 'name_asc')}
+              className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sky-300 font-semibold text-[11px] border border-slate-700 flex items-center gap-1 cursor-pointer"
+              title="Toque para alternar entre ordenação por Nome A-Z e Empresa A-Z"
+            >
+              <ArrowUpDown className="h-3 w-3" />
+              <span>{sortCriterion === 'name_asc' ? 'Nome A→Z' : sortCriterion === 'company_asc' ? 'Empresa A→Z' : 'Ordem A→Z'}</span>
+            </button>
+          </div>
+
+          {filteredParticipants.length === 0 ? (
+            <div className="p-8 text-center text-slate-400">
+              <p className="text-sm font-semibold text-slate-600 mb-1">Nenhum participante encontrado.</p>
+              <p className="text-xs text-slate-400">Tente ajustar a busca ou cadastrar novo participante.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {filteredParticipants.map((p) => {
+                const isSelected = selectedIds.includes(p.id);
+                return (
+                  <div
+                    key={`mobile-${p.id}`}
+                    className={`p-3.5 transition-colors ${
+                      isSelected
+                        ? 'bg-sky-50/80 border-l-4 border-l-sky-500'
+                        : 'hover:bg-slate-50/60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectParticipant(p.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer mt-1"
+                        />
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm text-slate-900 truncate">{p.fullName}</p>
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                            <span className="font-mono font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">
+                              Mat: {p.registrationNumber}
+                            </span>
+                            <span className="truncate max-w-[150px]">• {p.company}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botão de Presença Direta e Grande para Toque no Celular */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleAttendance(p)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                          p.attended
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            : 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200'
+                        }`}
+                        title="Alternar presença"
+                      >
+                        {p.attended ? (
+                          <>
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            <span>Presente</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="h-3.5 w-3.5 text-amber-700" />
+                            <span>Ausente</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Rodapé do Card Mobile com Ações Rápidas */}
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                      <span className="text-[11px] font-mono text-slate-400 truncate max-w-[160px]">
+                        {p.attended && p.attendedAt
+                          ? `Entrada: ${new Date(p.attendedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                          : 'Aguardando entrada'}
+                      </span>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setParticipantToEdit(p)}
+                          className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-medium flex items-center gap-1 cursor-pointer"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          <span>Editar</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedParticipantForQr(p)}
+                          className="p-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 cursor-pointer"
+                          title="Ver QR Code / Crachá"
+                        >
+                          <QrCode className="h-3.5 w-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setParticipantToDelete(p)}
+                          className="p-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 cursor-pointer"
+                          title="Excluir"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Tabela Completa para Computadores, Notebooks e Tablets */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-900 text-white border-b border-slate-800 uppercase tracking-wider font-semibold text-[11px]">
@@ -1296,9 +1562,47 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     />
                   </label>
                 </th>
-                <th className="py-3 px-4">Participante</th>
-                <th className="py-3 px-4">Matrícula</th>
-                <th className="py-3 px-4">Empresa</th>
+                <th 
+                  className="py-3 px-4 cursor-pointer hover:bg-slate-800 transition-colors select-none group"
+                  onClick={() => setSortCriterion((prev) => (prev === 'name_asc' ? 'name_desc' : 'name_asc'))}
+                  title="Clique para alternar ordem alfabética por Nome (A-Z ou Z-A)"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Participante</span>
+                    {sortCriterion === 'name_asc' && <ArrowDownAZ className="h-4 w-4 text-sky-400" />}
+                    {sortCriterion === 'name_desc' && <ArrowDownZA className="h-4 w-4 text-sky-400" />}
+                    {sortCriterion !== 'name_asc' && sortCriterion !== 'name_desc' && (
+                      <ArrowUpDown className="h-3 w-3 text-slate-500 group-hover:text-slate-300" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  className="py-3 px-4 cursor-pointer hover:bg-slate-800 transition-colors select-none group"
+                  onClick={() => setSortCriterion((prev) => (prev === 'registration_asc' ? 'recent' : 'registration_asc'))}
+                  title="Clique para ordenar por Matrícula"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Matrícula</span>
+                    {sortCriterion === 'registration_asc' && <ArrowDownAZ className="h-3.5 w-3.5 text-sky-400" />}
+                    {sortCriterion !== 'registration_asc' && (
+                      <ArrowUpDown className="h-3 w-3 text-slate-500 group-hover:text-slate-300" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  className="py-3 px-4 cursor-pointer hover:bg-slate-800 transition-colors select-none group"
+                  onClick={() => setSortCriterion((prev) => (prev === 'company_asc' ? 'company_desc' : 'company_asc'))}
+                  title="Clique para alternar ordem alfabética por Empresa (A-Z ou Z-A)"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Empresa</span>
+                    {sortCriterion === 'company_asc' && <ArrowDownAZ className="h-4 w-4 text-emerald-400" />}
+                    {sortCriterion === 'company_desc' && <ArrowDownZA className="h-4 w-4 text-emerald-400" />}
+                    {sortCriterion !== 'company_asc' && sortCriterion !== 'company_desc' && (
+                      <ArrowUpDown className="h-3 w-3 text-slate-500 group-hover:text-slate-300" />
+                    )}
+                  </div>
+                </th>
                 <th className="py-3 px-4">Evento</th>
                 <th className="py-3 px-4 text-center">Presença</th>
                 <th className="py-3 px-4">Horário de Presença</th>

@@ -160,13 +160,13 @@ function findParticipantByCodeOrInput(input: any): any | null {
     if (p.id === cleanInput) return true;
 
     if (targetMatricula) {
-      if (p.registrationNumber?.toLowerCase() === targetMatricula.toLowerCase()) return true;
+      if ((p.registrationNumber || '').toLowerCase() === (targetMatricula || '').toLowerCase()) return true;
       if (normalize(p.registrationNumber || '') === normalize(targetMatricula)) return true;
     }
 
-    if (targetName && p.fullName?.toLowerCase() === targetName.toLowerCase()) return true;
+    if (targetName && (p.fullName || '').toLowerCase() === (targetName || '').toLowerCase()) return true;
 
-    if (p.registrationNumber?.toLowerCase() === cleanInput.toLowerCase()) return true;
+    if ((p.registrationNumber || '').toLowerCase() === (cleanInput || '').toLowerCase()) return true;
     if (normalize(p.registrationNumber || '') === normInput) return true;
 
     const digitsOnly = cleanInput.replace(/\D/g, '');
@@ -261,7 +261,7 @@ export function devApiPlugin(): Plugin {
           if (existingSameMatricula) {
             if (
               (data.id && existingSameMatricula.id === data.id) ||
-              existingSameMatricula.fullName.trim().toLowerCase() === trimmedName.toLowerCase()
+              (existingSameMatricula.fullName || '').trim().toLowerCase() === (trimmedName || '').toLowerCase()
             ) {
               if (data.company && (!existingSameMatricula.company || existingSameMatricula.company === 'Não informada')) {
                 existingSameMatricula.company = String(data.company).trim();
@@ -281,7 +281,7 @@ export function devApiPlugin(): Plugin {
 
           const existingSameName = participants.find(
             (p) =>
-              p.fullName.trim().toLowerCase() === trimmedName.toLowerCase() &&
+              (p.fullName || '').trim().toLowerCase() === (trimmedName || '').toLowerCase() &&
               (p.eventId || 'event_1') === targetEventId
           );
           if (existingSameName) {

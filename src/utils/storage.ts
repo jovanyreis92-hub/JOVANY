@@ -1,7 +1,6 @@
 import { Participant, CompanySettings, EventItem, UserAccount, UserRole } from '../types';
 import { getEventRegistrationStatus } from './eventHelper';
 import { autoCorrectAndAccent, isValidFullName, normalizeNameForComparison } from './textCorrector';
-import { SHARED_CLOUD_APP_URL, CURRENT_DEV_APP_URL } from './urlHelper';
 
 const STORAGE_KEY = 'qr_event_participants_v1';
 const COMPANY_KEY = 'qr_event_company_settings_v1';
@@ -18,7 +17,7 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   fontFamily: 'inter',
   layoutScale: 'normal',
   primaryColor: '#0284c7',
-  publicAppUrl: 'https://ais-pre-rihuh2lzyxgzrc2qmh3tyj-161635627789.us-east1.run.app',
+  publicAppUrl: '',
   creatorName: 'Jovany Reis',
   creatorSignature: 'Desenvolvido por Jovany Reis • Sistema de Credenciamento & Inscrições',
 };
@@ -125,6 +124,12 @@ export function getCompanySettings(): CompanySettings {
       parsed.eventName === 'Evento Corporativo & Treinamento 2026' || !parsed.eventName
         ? 'COZINHA SHOW'
         : parsed.eventName;
+
+    // Remove URL obsoleta de servidor legado
+    if (parsed.publicAppUrl && parsed.publicAppUrl.includes('rihuh2lzyxgzrc2qmh3tyj')) {
+      parsed.publicAppUrl = '';
+    }
+
     return {
       ...DEFAULT_COMPANY_SETTINGS,
       adminUsername: parsed.adminUsername || 'admin',
@@ -135,6 +140,25 @@ export function getCompanySettings(): CompanySettings {
     console.error('Erro ao obter configurações da empresa:', e);
     return DEFAULT_COMPANY_SETTINGS;
   }
+}
+
+/**
+ * Retorna destinos pares de nuvem válidos para replicação cruzada se configurados pelo usuário
+ */
+export function getPeerCloudDestinations(): string[] {
+  const settings = getCompanySettings();
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : '';
+  if (
+    settings.publicAppUrl &&
+    settings.publicAppUrl.trim() &&
+    !settings.publicAppUrl.includes('rihuh2lzyxgzrc2qmh3tyj')
+  ) {
+    const custom = settings.publicAppUrl.replace(/\/$/, '');
+    if (custom && custom !== currentOrigin) {
+      return [custom];
+    }
+  }
+  return [];
 }
 
 export function saveCompanySettings(settings: CompanySettings): void {
@@ -159,8 +183,8 @@ export function getStoredUsers(): UserAccount[] {
   try {
     const raw = localStorage.getItem(USERS_KEY);
     const settings = getCompanySettings();
-    const primaryUser = (settings.adminUsername || 'admin').trim().toLowerCase();
-    const primaryPass = (settings.adminPassword || '1234').trim();
+    const primaryUser = (settings?.adminUsername || 'admin').trim().toLowerCase();
+    const primaryPass = (settings?.adminPassword || '1234').trim();
 
     if (!raw) {
       const initialUsers: UserAccount[] = [
@@ -183,7 +207,7 @@ export function getStoredUsers(): UserAccount[] {
     if (Array.isArray(parsed) && parsed.length > 0) {
       // Garante que o usuário admin primário exista na lista para não perder acesso legado
       const hasPrimary = parsed.some(
-        (u) => u.username.toLowerCase() === primaryUser
+        (u) => (u?.username || '').toLowerCase() === primaryUser
       );
       if (!hasPrimary) {
         parsed.unshift({
@@ -272,8 +296,8 @@ export function registerNewUser(data: {
   displayName?: string;
   role?: UserRole;
 }): { success: boolean; error?: string; user?: UserAccount } {
-  const cleanUsername = data.username.trim().toLowerCase();
-  const cleanPass = data.password.trim();
+  const cleanUsername = (data.username || '').trim().toLowerCase();
+  const cleanPass = (data.password || '').trim();
   const cleanName = data.displayName?.trim() || '';
 
   if (!cleanUsername || cleanUsername.length < 3) {
@@ -300,7 +324,7 @@ export function registerNewUser(data: {
 
   const users = getStoredUsers();
   const alreadyExists = users.some(
-    (u) => u.username.toLowerCase() === cleanUsername
+    (u) => (u?.username || '').toLowerCase() === cleanUsername
   );
 
   if (alreadyExists) {
@@ -340,7 +364,7 @@ export function updateUserPassword(
   const targetIndex = users.findIndex(
     (u) =>
       u.id === userIdOrUsername ||
-      u.username.toLowerCase() === userIdOrUsername.toLowerCase()
+      (u?.username || '').toLowerCase() === (userIdOrUsername || '').toLowerCase()
   );
 
   if (targetIndex === -1) {
@@ -353,8 +377,8 @@ export function updateUserPassword(
   // Se for o admin das configurações da empresa, sincroniza
   const settings = getCompanySettings();
   if (
-    (settings.adminUsername || 'admin').trim().toLowerCase() ===
-    users[targetIndex].username.toLowerCase()
+    (settings?.adminUsername || 'admin').trim().toLowerCase() ===
+    (users[targetIndex]?.username || '').toLowerCase()
   ) {
     saveCompanySettings({
       ...settings,
@@ -387,7 +411,7 @@ export function updateUserAccount(
       return { success: false, error: 'O login deve ter pelo menos 3 caracteres.' };
     }
     const duplicate = users.some(
-      (u) => u.id !== userId && u.username.toLowerCase() === cleanUser
+      (u) => u.id !== userId && (u?.username || '').toLowerCase() === cleanUser
     );
     if (duplicate) {
       return { success: false, error: `O login "${cleanUser}" já está em uso.` };
@@ -436,7 +460,7 @@ export function deleteUserAccount(
   const target = users.find(
     (u) =>
       u.id === userId ||
-      u.username.toLowerCase() === userId.toLowerCase()
+      (u?.username || '').toLowerCase() === (userId || '').toLowerCase()
   );
 
   if (!target) {
@@ -445,10 +469,10 @@ export function deleteUserAccount(
 
   const currentUser = getCurrentUser();
   const isCurrentSession =
-    (currentUser && (currentUser.id === target.id || currentUser.username.toLowerCase() === target.username.toLowerCase())) ||
+    (currentUser && (currentUser.id === target.id || (currentUser.username || '').toLowerCase() === (target.username || '').toLowerCase())) ||
     (currentSessionUserIdOrUsername &&
       (currentSessionUserIdOrUsername === target.id ||
-        currentSessionUserIdOrUsername.toLowerCase() === target.username.toLowerCase()));
+        (currentSessionUserIdOrUsername || '').toLowerCase() === (target.username || '').toLowerCase()));
 
   if (isCurrentSession) {
     return {
@@ -476,8 +500,8 @@ export function verifyAdminPassword(password: string): boolean {
 }
 
 export function verifyAdminCredentials(username: string, password: string): boolean {
-  const cleanUser = username.trim().toLowerCase();
-  const cleanPass = password.trim();
+  const cleanUser = (username || '').trim().toLowerCase();
+  const cleanPass = (password || '').trim();
   const users = getStoredUsers();
 
   // 1. Busca usuário na lista de usuários cadastrados
@@ -494,7 +518,7 @@ export function verifyAdminCredentials(username: string, password: string): bool
     }
   } else {
     matchedUser = users.find(
-      (u) => u.active && u.username.toLowerCase() === cleanUser && u.password.trim() === cleanPass
+      (u) => u.active && (u?.username || '').toLowerCase() === cleanUser && (u?.password || '').trim() === cleanPass
     );
   }
 
@@ -516,7 +540,7 @@ export function verifyAdminCredentials(username: string, password: string): bool
         active: true,
       };
       // Registra ou atualiza esse usuário no storage para persistência futura
-      const exists = users.some((u) => u.username.toLowerCase() === fallbackUser);
+      const exists = users.some((u) => (u?.username || '').toLowerCase() === fallbackUser);
       if (!exists) {
         saveStoredUsers([...users, matchedUser]);
       }
@@ -526,7 +550,7 @@ export function verifyAdminCredentials(username: string, password: string): bool
   if (matchedUser) {
     // Atualiza data do último login
     const updatedUsers = users.map((u) => {
-      if (u.id === matchedUser!.id || u.username.toLowerCase() === matchedUser!.username.toLowerCase()) {
+      if (u.id === matchedUser!.id || (u?.username || '').toLowerCase() === (matchedUser!.username || '').toLowerCase()) {
         return { ...u, lastLoginAt: new Date().toISOString() };
       }
       return u;
@@ -559,8 +583,8 @@ export function setAdminLoggedIn(loggedIn: boolean): void {
 }
 
 export function registerAdminCredentials(username: string, password: string): { success: boolean; error?: string } {
-  const cleanUser = username.trim().toLowerCase();
-  const cleanPass = password.trim();
+  const cleanUser = (username || '').trim().toLowerCase();
+  const cleanPass = (password || '').trim();
 
   if (!cleanUser || cleanUser.length < 3) {
     return { success: false, error: 'O login (usuário) deve conter pelo menos 3 caracteres.' };
@@ -571,7 +595,7 @@ export function registerAdminCredentials(username: string, password: string): { 
   }
 
   const users = getStoredUsers();
-  const existingIndex = users.findIndex((u) => u.username.toLowerCase() === cleanUser);
+  const existingIndex = users.findIndex((u) => (u?.username || '').toLowerCase() === cleanUser);
 
   if (existingIndex !== -1) {
     // Se o usuário já existe, atualiza a senha dele
@@ -727,7 +751,7 @@ export function addEvent(data: {
   }
 
   const events = getStoredEvents();
-  const exists = events.some((e) => e.name.toLowerCase() === trimmedName.toLowerCase());
+  const exists = events.some((e) => (e?.name || '').toLowerCase() === (trimmedName || '').toLowerCase());
   if (exists) {
     return { success: false, error: `Já existe um evento cadastrado com o nome "${trimmedName}".` };
   }
@@ -961,19 +985,17 @@ export function mergeParticipantLists(
         }
       }
 
-      const company = (incoming.company && incoming.company !== 'Não informada')
-        ? incoming.company
-        : existing.company;
+      const company = incoming.company || existing.company;
       const eventName = incoming.eventName || existing.eventName;
-      const fullName = (incoming.fullName && incoming.fullName.length > (existing.fullName || '').length)
-        ? incoming.fullName
-        : existing.fullName;
+      const fullName = incoming.fullName || existing.fullName;
+      const registrationNumber = incoming.registrationNumber || existing.registrationNumber;
 
       map.set(key, {
         ...existing,
         ...incoming,
         id: existing.id || incoming.id,
         fullName,
+        registrationNumber,
         company,
         eventName,
         attended,
@@ -1071,8 +1093,17 @@ export function saveParticipants(participants: Participant[], broadcastLocal = t
 
 // Chave para fila de participantes salvos durante oscilações de rede móvel
 const OFFLINE_QUEUE_KEY = 'qr_offline_participants_queue_v1';
+const OFFLINE_ATTENDANCE_QUEUE_KEY = 'qr_offline_attendance_queue_v1';
 
-function getOfflineQueue(): Participant[] {
+export interface OfflineAttendanceItem {
+  id: string;
+  codeOrMatricula: string;
+  attended: boolean;
+  attendedAt: string | null;
+  attendanceUpdatedAt: string;
+}
+
+export function getOfflineQueue(): Participant[] {
   try {
     const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -1081,37 +1112,96 @@ function getOfflineQueue(): Participant[] {
   }
 }
 
+export function getOfflineAttendanceQueue(): OfflineAttendanceItem[] {
+  try {
+    const raw = localStorage.getItem(OFFLINE_ATTENDANCE_QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function getPendingOfflineCount(): number {
+  return getOfflineQueue().length + getOfflineAttendanceQueue().length;
+}
+
 function queueOfflineParticipant(participant: Participant): void {
   try {
     const q = getOfflineQueue();
     if (!q.some((p) => p.id === participant.id)) {
       q.push(participant);
       localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q));
+      window.dispatchEvent(new CustomEvent('offline-queue-changed', { detail: { count: getPendingOfflineCount() } }));
     }
   } catch (err) {
     console.warn('Erro ao enfileirar participante offline:', err);
   }
 }
 
-export async function flushOfflineQueue(): Promise<void> {
-  const q = getOfflineQueue();
-  if (!q || q.length === 0) return;
-
+export function queueOfflineAttendance(item: OfflineAttendanceItem): void {
   try {
-    const res = await fetch('/api/participants/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ participants: q }),
-    });
-
-    if (res.ok) {
-      localStorage.removeItem(OFFLINE_QUEUE_KEY);
-      console.log('[SYNC] Fila offline sincronizada com sucesso com o servidor central.');
+    const q = getOfflineAttendanceQueue();
+    const existingIdx = q.findIndex(i => i.id === item.id);
+    if (existingIdx >= 0) {
+      q[existingIdx] = item;
+    } else {
+      q.push(item);
     }
+    localStorage.setItem(OFFLINE_ATTENDANCE_QUEUE_KEY, JSON.stringify(q));
+    window.dispatchEvent(new CustomEvent('offline-queue-changed', { detail: { count: getPendingOfflineCount() } }));
   } catch (err) {
-    console.warn('Fila offline aguardando conexão estável:', err);
+    console.warn('Erro ao enfileirar presença offline:', err);
   }
+}
+
+export function removeOfflineAttendanceFromQueue(id: string): void {
+  try {
+    const q = getOfflineAttendanceQueue().filter(i => i.id !== id);
+    localStorage.setItem(OFFLINE_ATTENDANCE_QUEUE_KEY, JSON.stringify(q));
+    window.dispatchEvent(new CustomEvent('offline-queue-changed', { detail: { count: getPendingOfflineCount() } }));
+  } catch {}
+}
+
+export async function flushOfflineQueue(): Promise<void> {
+  const partsQueue = getOfflineQueue();
+  if (partsQueue && partsQueue.length > 0) {
+    try {
+      const res = await fetch('/api/participants/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ participants: partsQueue }),
+      });
+
+      if (res.ok) {
+        localStorage.removeItem(OFFLINE_QUEUE_KEY);
+        console.log('[SYNC] Fila offline de participantes sincronizada com sucesso.');
+      }
+    } catch (err) {
+      console.warn('Fila de participantes aguardando rede:', err);
+    }
+  }
+
+  const attQueue = getOfflineAttendanceQueue();
+  if (attQueue && attQueue.length > 0) {
+    try {
+      const res = await fetch('/api/participants/attendance-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ items: attQueue }),
+      });
+
+      if (res.ok) {
+        localStorage.removeItem(OFFLINE_ATTENDANCE_QUEUE_KEY);
+        console.log('[SYNC] Fila offline de presenças sincronizada com sucesso.');
+      }
+    } catch (err) {
+      console.warn('Fila de presenças aguardando rede:', err);
+    }
+  }
+
+  window.dispatchEvent(new CustomEvent('offline-queue-changed', { detail: { count: getPendingOfflineCount() } }));
 }
 
 // Cadastrar novo participante (suporta envio síncrono e assíncrono de qualquer celular em qualquer rede 4G/5G/Wi-Fi)
@@ -1169,14 +1259,14 @@ export async function addParticipant(
   const normalizedName = normalizeNameForComparison(trimmedName);
   const existingSameMatricula = current.find(
     (p) => 
-      p.registrationNumber.toLowerCase() === trimmedMatricula.toLowerCase() &&
-      (!p.eventId || p.eventId === targetEventId)
+      (p?.registrationNumber || '').toLowerCase() === trimmedMatricula.toLowerCase() &&
+      (!p?.eventId || p.eventId === targetEventId)
   );
 
   const existingSameName = current.find(
     (p) =>
-      normalizeNameForComparison(p.fullName) === normalizedName &&
-      (!p.eventId || p.eventId === targetEventId)
+      normalizeNameForComparison(p?.fullName) === normalizedName &&
+      (!p?.eventId || p.eventId === targetEventId)
   );
 
   if (existingSameMatricula && existingSameName) {
@@ -1244,30 +1334,24 @@ export async function addParticipant(
       saveParticipants(updated);
       setSyncStatus('connected');
 
-      // Replicar imediatamente para nuvem cruzada (garante recebimento em celulares em 4G/5G/todas as redes)
-      if (typeof window !== 'undefined') {
-        const currentOrigin = window.location.origin.replace(/\/$/, '');
-        const devUrl = (CURRENT_DEV_APP_URL || '').replace(/\/$/, '');
-        const preUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-        const destinations = [devUrl, preUrl].filter((u) => u && u !== currentOrigin);
-
-        destinations.forEach((destUrl) => {
-          fetch(`${destUrl}/api/participants`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: serverParticipant.id,
-              fullName: trimmedName,
-              registrationNumber: trimmedMatricula,
-              company: trimmedCompany,
-              eventId: targetEventId,
-              eventName: targetEventName,
-              createdAt: serverParticipant.createdAt,
-              adminAuth: true,
-            }),
-          }).catch(() => {});
-        });
-      }
+      // Replicar imediatamente para destinos de nuvem configurados se houver
+      const peerDestinations = getPeerCloudDestinations();
+      peerDestinations.forEach((destUrl) => {
+        fetch(`${destUrl}/api/participants`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: serverParticipant.id,
+            fullName: trimmedName,
+            registrationNumber: trimmedMatricula,
+            company: trimmedCompany,
+            eventId: targetEventId,
+            eventName: targetEventName,
+            createdAt: serverParticipant.createdAt,
+            adminAuth: true,
+          }),
+        }).catch(() => {});
+      });
 
       return { success: true, participant: serverParticipant };
     } else {
@@ -1334,15 +1418,15 @@ export async function updateParticipant(
   const duplicateMatricula = current.find(
     (p) =>
       p.id !== id &&
-      p.registrationNumber.toLowerCase() === trimmedMatricula.toLowerCase() &&
-      (!p.eventId || p.eventId === targetEventId)
+      (p?.registrationNumber || '').toLowerCase() === trimmedMatricula.toLowerCase() &&
+      (!p?.eventId || p.eventId === targetEventId)
   );
 
   const duplicateName = current.find(
     (p) =>
       p.id !== id &&
-      normalizeNameForComparison(p.fullName) === normalizedName &&
-      (!p.eventId || p.eventId === targetEventId)
+      normalizeNameForComparison(p?.fullName) === normalizedName &&
+      (!p?.eventId || p.eventId === targetEventId)
   );
 
   if (duplicateMatricula) {
@@ -1359,10 +1443,12 @@ export async function updateParticipant(
     };
   }
 
+  const now = new Date().toISOString();
   const newAttended = data.attended !== undefined ? data.attended : existing.attended;
+  const attendedChanged = newAttended !== existing.attended;
   const newAttendedAt =
     newAttended && !existing.attended
-      ? new Date().toISOString()
+      ? now
       : !newAttended
       ? null
       : existing.attendedAt;
@@ -1376,40 +1462,69 @@ export async function updateParticipant(
     eventName: targetEventName,
     attended: newAttended,
     attendedAt: newAttendedAt,
+    attendanceUpdatedAt: now,
   };
 
-  // Salva no armazenamento local
+  // Salva no armazenamento local imediatamente (< 1ms)
   const updatedList = current.map((p) => (p.id === id ? updatedParticipant : p));
   saveParticipants(updatedList);
 
+  // Dispara eventos locais para atualizar todas as abas e componentes imediatamente
+  window.dispatchEvent(new CustomEvent('participant-updated', { detail: updatedParticipant }));
+  window.dispatchEvent(new Event('participants-updated'));
+
+  if (attendedChanged) {
+    if (newAttended) {
+      window.dispatchEvent(
+        new CustomEvent('attendance-confirmed', {
+          detail: { participant: updatedParticipant, timestamp: now, synced: true },
+        })
+      );
+    } else {
+      window.dispatchEvent(
+        new CustomEvent('attendance-absent', {
+          detail: { participant: updatedParticipant, timestamp: now, synced: true },
+        })
+      );
+    }
+  }
+
+  const updatePayload = {
+    id,
+    fullName: trimmedName,
+    registrationNumber: trimmedMatricula,
+    company: trimmedCompany,
+    eventId: targetEventId,
+    eventName: targetEventName,
+    attended: newAttended,
+    attendedAt: newAttendedAt,
+    attendanceUpdatedAt: now,
+  };
+
   // Envia atualização para o servidor central
   try {
-    const res = await fetch(`/api/participants/${id}`, {
+    fetch(`/api/participants/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache',
       },
       credentials: 'include',
-      body: JSON.stringify({
-        fullName: trimmedName,
-        registrationNumber: trimmedMatricula,
-        company: trimmedCompany,
-        eventId: targetEventId,
-        eventName: targetEventName,
-        attended: newAttended,
-      }),
+      body: JSON.stringify(updatePayload),
+    }).catch(() => {});
+
+    // Propaga imediatamente para todas as instâncias peer na nuvem configuradas
+    const peerDestinations = getPeerCloudDestinations();
+    peerDestinations.forEach((destUrl) => {
+      fetch(`${destUrl}/api/participants/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload),
+      }).catch(() => {});
     });
 
-    if (res.ok) {
-      const serverData = await res.json();
-      const confirmed: Participant = serverData.participant || updatedParticipant;
-      setSyncStatus('connected');
-      return { success: true, participant: confirmed };
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      return { success: false, error: errData.error || 'Erro ao atualizar participante no servidor.' };
-    }
+    setSyncStatus('connected');
+    return { success: true, participant: updatedParticipant };
   } catch (err) {
     console.warn('Servidor indisponível para atualização imediata, salvo localmente:', err);
     setSyncStatus('offline');
@@ -1448,15 +1563,14 @@ export function deleteParticipant(id: string): boolean {
     .catch(() => setSyncStatus('offline'));
 
   // 5. Propaga exclusão para nuvem cruzada se configurada
-  const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-  if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
-    fetch(`${targetCloudUrl}/api/participants/${id}`, { 
+  const peerDestinations = getPeerCloudDestinations();
+  peerDestinations.forEach((destUrl) => {
+    fetch(`${destUrl}/api/participants/${id}`, { 
       method: 'DELETE',
       headers: { 'Cache-Control': 'no-cache' },
       keepalive: true,
     }).catch(() => {});
-  }
+  });
 
   // 6. Alerta imediatamente a interface e componentes
   if (typeof window !== 'undefined') {
@@ -1498,17 +1612,16 @@ export function deleteMultipleParticipants(ids: string[]): number {
     .then(() => setSyncStatus('connected'))
     .catch(() => setSyncStatus('offline'));
 
-  // 4. Propaga para nuvem cruzada
-  const targetCloudUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-  if (targetCloudUrl && currentOrigin && currentOrigin !== targetCloudUrl) {
-    fetch(`${targetCloudUrl}/api/participants/delete-multiple`, {
+  // 4. Propaga para nuvem cruzada se configurada
+  const peerDestinations = getPeerCloudDestinations();
+  peerDestinations.forEach((destUrl) => {
+    fetch(`${destUrl}/api/participants/delete-multiple`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
       body: JSON.stringify({ ids }),
       keepalive: true,
     }).catch(() => {});
-  }
+  });
 
   // 5. Alerta interface
   if (typeof window !== 'undefined') {
@@ -1560,20 +1673,14 @@ export async function importBatchParticipants(
     }).catch(() => {});
 
     // Replicar para nuvem cruzada se configurada
-    if (typeof window !== 'undefined') {
-      const currentOrigin = window.location.origin.replace(/\/$/, '');
-      const devUrl = (CURRENT_DEV_APP_URL || '').replace(/\/$/, '');
-      const preUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-      const destinations = [devUrl, preUrl].filter((u) => u && u !== currentOrigin);
-
-      destinations.forEach((destUrl) => {
-        fetch(`${destUrl}${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }).catch(() => {});
-      });
-    }
+    const peerDestinations = getPeerCloudDestinations();
+    peerDestinations.forEach((destUrl) => {
+      fetch(`${destUrl}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    });
 
     return {
       success: true,
@@ -1647,21 +1754,15 @@ export function toggleAttendance(id: string): { participant: Participant | null;
     .then(() => setSyncStatus('connected'))
     .catch(() => setSyncStatus('offline'));
 
-  // Propaga para todas as instâncias de nuvem peer (dev e pre-share) com o payload exato
-  if (typeof window !== 'undefined') {
-    const currentOrigin = window.location.origin.replace(/\/$/, '');
-    const peerDestinations = [CURRENT_DEV_APP_URL, SHARED_CLOUD_APP_URL]
-      .map((u) => (u || '').replace(/\/$/, ''))
-      .filter((u) => u && u !== currentOrigin);
-
-    peerDestinations.forEach((destUrl) => {
-      fetch(`${destUrl}/api/participants/${id}/toggle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-    });
-  }
+  // Propaga para instâncias de nuvem configuradas com o payload exato
+  const peerDestinations = getPeerCloudDestinations();
+  peerDestinations.forEach((destUrl) => {
+    fetch(`${destUrl}/api/participants/${id}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  });
 
   return { participant: updatedParticipant, attended: newAttended };
 }
@@ -1726,20 +1827,14 @@ export function batchSetAttendance(
     .then(() => setSyncStatus('connected'))
     .catch(() => setSyncStatus('offline'));
 
-  if (typeof window !== 'undefined') {
-    const currentOrigin = window.location.origin.replace(/\/$/, '');
-    const peerDestinations = [CURRENT_DEV_APP_URL, SHARED_CLOUD_APP_URL]
-      .map((u) => (u || '').replace(/\/$/, ''))
-      .filter((u) => u && u !== currentOrigin);
-
-    peerDestinations.forEach((destUrl) => {
-      fetch(`${destUrl}/api/participants/attendance-batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-    });
-  }
+  const peerDestinations = getPeerCloudDestinations();
+  peerDestinations.forEach((destUrl) => {
+    fetch(`${destUrl}/api/participants/attendance-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  });
 
   return { success: true, count: updatedList.length, updated: updatedList };
 }
@@ -1763,6 +1858,36 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
   let targetMatricula: string | null = null;
   let targetName: string | null = null;
   let targetEmpresa: string | null = null;
+  let targetEvent: string | null = null;
+
+  // 0. Tenta decodificar formato ultra-compacto oficial (CP:id:mat:nome:emp ou CP:id:mat:nome:emp:evento)
+  if (cleanInput.startsWith('CP:') || cleanInput.startsWith('CHK:') || cleanInput.startsWith('CP|') || cleanInput.startsWith('CHK|')) {
+    const separator = cleanInput.includes('|') ? '|' : ':';
+    const parts = cleanInput.split(separator);
+    if (parts[1]) targetId = parts[1].trim();
+    if (parts[2]) targetMatricula = parts[2].trim();
+    if (parts[3]) {
+      try {
+        targetName = decodeURIComponent(parts[3]).trim();
+      } catch {
+        targetName = parts[3].trim();
+      }
+    }
+    if (parts[4]) {
+      try {
+        targetEmpresa = decodeURIComponent(parts[4]).trim();
+      } catch {
+        targetEmpresa = parts[4].trim();
+      }
+    }
+    if (parts[5]) {
+      try {
+        targetEvent = decodeURIComponent(parts[5]).trim();
+      } catch {
+        targetEvent = parts[5].trim();
+      }
+    }
+  }
 
   // 1. Tenta decodificar JSON do crachá do participante
   const jsonMatch = cleanInput.match(/\{[\s\S]*\}/);
@@ -1776,6 +1901,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       if (parsed.nome) targetName = String(parsed.nome).trim();
       if (parsed.name) targetName = String(parsed.name).trim();
       if (parsed.empresa || parsed.company) targetEmpresa = String(parsed.empresa || parsed.company).trim();
+      if (parsed.evento || parsed.event || parsed.eventName) targetEvent = String(parsed.evento || parsed.event || parsed.eventName).trim();
     } catch {
       // ignora se não for JSON válido
     }
@@ -1792,10 +1918,12 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       const urlCode = parsedUrl.searchParams.get('mat') || parsedUrl.searchParams.get('matricula') || parsedUrl.searchParams.get('code') || parsedUrl.searchParams.get('registrationNumber');
       const urlNom = parsedUrl.searchParams.get('nom') || parsedUrl.searchParams.get('nome') || parsedUrl.searchParams.get('name');
       const urlEmp = parsedUrl.searchParams.get('emp') || parsedUrl.searchParams.get('empresa') || parsedUrl.searchParams.get('company');
+      const urlEvt = parsedUrl.searchParams.get('evt') || parsedUrl.searchParams.get('evento') || parsedUrl.searchParams.get('event');
       if (urlId && !targetId) targetId = urlId;
       if (urlCode && !targetMatricula) targetMatricula = urlCode;
       if (urlNom && !targetName) targetName = urlNom;
       if (urlEmp && !targetEmpresa) targetEmpresa = urlEmp;
+      if (urlEvt && !targetEvent) targetEvent = urlEvt;
     }
   } catch {}
 
@@ -1806,10 +1934,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
     return (val || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : '';
-  const peerDestinations = [CURRENT_DEV_APP_URL, SHARED_CLOUD_APP_URL]
-    .map((u) => (u || '').replace(/\/$/, ''))
-    .filter((u) => u && u !== currentOrigin);
+  const peerDestinations = getPeerCloudDestinations();
 
   let participant = current.find((p) => {
     if (!p) return false;
@@ -1817,13 +1942,13 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
     if (p.id === cleanInput) return true;
 
     if (targetMatricula) {
-      if (p.registrationNumber?.toLowerCase() === targetMatricula.toLowerCase()) return true;
+      if ((p.registrationNumber || '').toLowerCase() === (targetMatricula || '').toLowerCase()) return true;
       if (normMatricula(p.registrationNumber) === normMatricula(targetMatricula)) return true;
     }
 
-    if (targetName && p.fullName?.toLowerCase() === targetName.toLowerCase()) return true;
+    if (targetName && (p.fullName || '').toLowerCase() === (targetName || '').toLowerCase()) return true;
 
-    if (p.registrationNumber?.toLowerCase() === cleanInput.toLowerCase()) return true;
+    if ((p.registrationNumber || '').toLowerCase() === (cleanInput || '').toLowerCase()) return true;
     if (normMatricula(p.registrationNumber) === normInput) return true;
 
     const digitsOnly = cleanInput.replace(/\D/g, '');
@@ -1900,6 +2025,15 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       })
     );
 
+    // Enfileira para garantia offline de envio a todos os computadores e celulares
+    queueOfflineAttendance({
+      id: confirmedParticipant.id,
+      codeOrMatricula: cleanInput,
+      attended: true,
+      attendedAt: now,
+      attendanceUpdatedAt: now,
+    });
+
     // Notifica o servidor central local com o objeto completo para garantir persistência e broadcast imediato
     fetch('/api/participants/attendance', {
       method: 'POST',
@@ -1913,7 +2047,14 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
         participant: confirmedParticipant,
       }),
     })
-      .then(() => setSyncStatus('connected'))
+      .then((res) => {
+        if (res.ok) {
+          removeOfflineAttendanceFromQueue(confirmedParticipant.id);
+          setSyncStatus('connected');
+        } else {
+          setSyncStatus('offline');
+        }
+      })
       .catch(() => setSyncStatus('offline'));
 
     // Propaga imediatamente para todas as outras instâncias na nuvem (computadores e celulares 4G/5G)
@@ -1932,25 +2073,36 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       }).catch(() => {});
     });
 
+    const isNetOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
     return {
       status: 'success',
       participant: confirmedParticipant,
-      message: 'Presença confirmada com sucesso! Sincronizado em rede com todos os computadores e celulares.',
+      message: isNetOnline
+        ? 'Presença confirmada com sucesso! Sincronizado em rede com todos os computadores e celulares.'
+        : 'Presença confirmada no aparelho (Modo Offline)! Fila salva localmente para sincronização automática ao reconectar.',
     };
   }
 
-  // Se NÃO foi encontrado localmente:
-  // 1. Tenta recuperar participante diretamente dos dados lidos pelo QR Code (seja URL ou JSON)
-  if (targetName && (targetMatricula || targetId)) {
+  // Se NÃO foi encontrado localmente no cache:
+  // 1. Tenta recuperar e registrar participante diretamente dos dados embutidos no QR Code (CP:, URL, JSON ou código offline)
+  const isNetOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  if (targetName || targetMatricula || targetId || (!isNetOnline && cleanInput)) {
     const now = new Date().toISOString();
     const settings = getCompanySettings();
+    const cleanDigits = cleanInput.replace(/\D/g, '');
+    const fallbackMatricula = targetMatricula || (targetId ? targetId.replace(/\D/g, '') : cleanDigits) || 'S/N';
+    const fallbackName = targetName || (targetMatricula ? `Participante (Matrícula ${targetMatricula})` : `Participante (${(targetId || cleanInput).slice(0, 16)})`);
+    const fallbackCompany = targetEmpresa || 'Empresa Identificada por QR';
+    const fallbackEvent = targetEvent || settings.eventName || 'COZINHA SHOW';
+
     const recoveredParticipant: Participant = {
       id: targetId || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      fullName: targetName,
-      registrationNumber: targetMatricula || '',
-      company: targetEmpresa || 'Empresa Identificada por QR',
+      fullName: fallbackName,
+      registrationNumber: fallbackMatricula,
+      company: fallbackCompany,
       eventId: 'event_1',
-      eventName: settings.eventName || 'COZINHA SHOW',
+      eventName: fallbackEvent,
       createdAt: now,
       attended: true,
       attendedAt: now,
@@ -1960,6 +2112,16 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
     const fresh = getStoredParticipants();
     saveParticipants([recoveredParticipant, ...fresh.filter(p => p.id !== recoveredParticipant.id)]);
 
+    // Enfileira participante e presença offline para garantia de sincronização com o servidor
+    queueOfflineParticipant(recoveredParticipant);
+    queueOfflineAttendance({
+      id: recoveredParticipant.id,
+      codeOrMatricula: cleanInput,
+      attended: true,
+      attendedAt: now,
+      attendanceUpdatedAt: now,
+    });
+
     window.dispatchEvent(new CustomEvent('participant-updated', { detail: recoveredParticipant }));
     window.dispatchEvent(
       new CustomEvent('attendance-confirmed', {
@@ -1967,7 +2129,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       })
     );
 
-    // Envia ao servidor para persistência e broadcast
+    // Envia ao servidor para persistência e broadcast se houver conexão
     fetch('/api/participants/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1979,7 +2141,16 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
         attendanceUpdatedAt: now,
         participant: recoveredParticipant,
       }),
-    }).catch(() => {});
+    })
+      .then((res) => {
+        if (res.ok) {
+          removeOfflineAttendanceFromQueue(recoveredParticipant.id);
+          setSyncStatus('connected');
+        } else {
+          setSyncStatus('offline');
+        }
+      })
+      .catch(() => setSyncStatus('offline'));
 
     peerDestinations.forEach((destUrl) => {
       fetch(`${destUrl}/api/participants/attendance`, {
@@ -1999,7 +2170,9 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
     return {
       status: 'success',
       participant: recoveredParticipant,
-      message: 'Presença confirmada com sucesso via dados oficiais do QR Code!',
+      message: isNetOnline
+        ? 'Presença confirmada com sucesso via dados oficiais do QR Code!'
+        : 'Presença confirmada no aparelho via dados do QR Code (Modo Offline)! Sincronização pendente ao reconectar.',
     };
   }
 
@@ -2213,13 +2386,9 @@ export async function syncWithServer(): Promise<void> {
       }
     }
 
-    // Sincronização em nuvem cruzada: se houver outro endpoint na nuvem (ais-dev ou ais-pre),
-    // realiza ponte bidirecional sincronizando cadastros E propagando exclusões
-    if (typeof window !== 'undefined') {
-      const currentOrigin = window.location.origin.replace(/\/$/, '');
-      const devUrl = (CURRENT_DEV_APP_URL || '').replace(/\/$/, '');
-      const preUrl = (SHARED_CLOUD_APP_URL || '').replace(/\/$/, '');
-      const destinations = [devUrl, preUrl].filter((u) => u && u !== currentOrigin);
+    // Sincronização em nuvem cruzada se configurada nas preferências
+    const destinations = getPeerCloudDestinations();
+    if (destinations.length > 0) {
 
       const localDeletedIds = Array.from(getDeletedParticipantIds());
 
@@ -2287,30 +2456,54 @@ export async function syncWithServer(): Promise<void> {
                 });
               }
 
-              // Sincronização bidirecional de status de presença (Presente e Ausente)
+              // Sincronização bidirecional de dados do participante e status de presença (Presente e Ausente)
+              let hasChangesInSync = false;
               cloudParts.forEach((cp) => {
                 const target = merged.find((p) => p.id === cp.id || (p.registrationNumber === cp.registrationNumber && (p.eventId || 'event_1') === (cp.eventId || 'event_1')));
-                if (target && typeof cp.attended === 'boolean' && target.attended !== cp.attended) {
-                  const cpTime = cp.attendanceUpdatedAt ? new Date(cp.attendanceUpdatedAt).getTime() : 0;
-                  const targetTime = target.attendanceUpdatedAt ? new Date(target.attendanceUpdatedAt).getTime() : 0;
-                  if (cpTime > targetTime) {
-                    target.attended = cp.attended;
-                    target.attendedAt = cp.attended ? (cp.attendedAt || new Date().toISOString()) : null;
-                    target.attendanceUpdatedAt = cp.attendanceUpdatedAt || new Date().toISOString();
-                    saveParticipants(merged);
-                    fetch('/api/participants/attendance', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        id: target.id,
-                        attended: target.attended,
-                        attendedAt: target.attendedAt,
-                        attendanceUpdatedAt: target.attendanceUpdatedAt,
-                      }),
-                    }).catch(() => {});
+                if (target) {
+                  // Sincroniza atualizações de cadastro (nome, empresa, matrícula)
+                  if (cp.fullName && cp.fullName !== target.fullName) {
+                    target.fullName = cp.fullName;
+                    hasChangesInSync = true;
+                  }
+                  if (cp.company && cp.company !== target.company) {
+                    target.company = cp.company;
+                    hasChangesInSync = true;
+                  }
+                  if (cp.registrationNumber && cp.registrationNumber !== target.registrationNumber) {
+                    target.registrationNumber = cp.registrationNumber;
+                    hasChangesInSync = true;
+                  }
+
+                  // Sincroniza status de presença (Presente e Ausente)
+                  if (typeof cp.attended === 'boolean' && target.attended !== cp.attended) {
+                    const cpTime = cp.attendanceUpdatedAt ? new Date(cp.attendanceUpdatedAt).getTime() : 0;
+                    const targetTime = target.attendanceUpdatedAt ? new Date(target.attendanceUpdatedAt).getTime() : 0;
+                    if (cpTime > targetTime || (!target.attendanceUpdatedAt && cp.attendanceUpdatedAt)) {
+                      target.attended = cp.attended;
+                      target.attendedAt = cp.attended ? (cp.attendedAt || new Date().toISOString()) : null;
+                      target.attendanceUpdatedAt = cp.attendanceUpdatedAt || new Date().toISOString();
+                      hasChangesInSync = true;
+
+                      fetch('/api/participants/attendance', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          id: target.id,
+                          attended: target.attended,
+                          attendedAt: target.attendedAt,
+                          attendanceUpdatedAt: target.attendanceUpdatedAt,
+                        }),
+                      }).catch(() => {});
+                    }
                   }
                 }
               });
+
+              if (hasChangesInSync) {
+                saveParticipants(merged);
+                window.dispatchEvent(new Event('participants-updated'));
+              }
             }
           }
         } catch {
@@ -2394,6 +2587,7 @@ export function initMultiDeviceSync(): () => void {
             if (!current.some((p) => p.id === data.id)) {
               saveParticipants([data, ...current]);
               window.dispatchEvent(new CustomEvent('participant-received', { detail: data }));
+              window.dispatchEvent(new Event('participants-updated'));
             }
           } else if (type === 'attendance_updated' && data) {
             const deleted = getDeletedParticipantIds();
@@ -2404,6 +2598,7 @@ export function initMultiDeviceSync(): () => void {
             const updated = exists ? current.map((p) => (p.id === data.id ? data : p)) : [data, ...current];
             saveParticipants(updated);
             window.dispatchEvent(new CustomEvent('participant-updated', { detail: data }));
+            window.dispatchEvent(new Event('participants-updated'));
             if (data.attended) {
               window.dispatchEvent(
                 new CustomEvent('attendance-confirmed', {
@@ -2428,6 +2623,7 @@ export function initMultiDeviceSync(): () => void {
               const updated = exists ? current.map((p) => (p.id === pData.id ? pData : p)) : [pData, ...current];
               saveParticipants(updated);
               window.dispatchEvent(new CustomEvent('attendance-confirmed', { detail: data }));
+              window.dispatchEvent(new Event('participants-updated'));
             }
           } else if (type === 'attendance_absent' && data) {
             if (data.participant) {
@@ -2440,6 +2636,7 @@ export function initMultiDeviceSync(): () => void {
               const updated = exists ? current.map((p) => (p.id === pData.id ? pData : p)) : [pData, ...current];
               saveParticipants(updated);
               window.dispatchEvent(new CustomEvent('attendance-absent', { detail: data }));
+              window.dispatchEvent(new Event('participants-updated'));
             }
           } else if (type === 'attendance_batch_updated' && data) {
             if (Array.isArray(data.participants)) {
@@ -2466,9 +2663,27 @@ export function initMultiDeviceSync(): () => void {
             if (deleted.has(data.id)) return;
 
             const current = getStoredParticipants();
-            const updated = current.map((p) => (p.id === data.id ? data : p));
+            const exists = current.some((p) => p.id === data.id);
+            const updated = exists ? current.map((p) => (p.id === data.id ? data : p)) : [data, ...current];
             saveParticipants(updated);
             window.dispatchEvent(new CustomEvent('participant-updated', { detail: data }));
+            window.dispatchEvent(new Event('participants-updated'));
+
+            if (typeof data.attended === 'boolean') {
+              if (data.attended) {
+                window.dispatchEvent(
+                  new CustomEvent('attendance-confirmed', {
+                    detail: { participant: data, timestamp: data.attendedAt || new Date().toISOString(), synced: true },
+                  })
+                );
+              } else {
+                window.dispatchEvent(
+                  new CustomEvent('attendance-absent', {
+                    detail: { participant: data, timestamp: data.attendanceUpdatedAt || new Date().toISOString(), synced: true },
+                  })
+                );
+              }
+            }
           } else if (type === 'participant_deleted' && data) {
             // Registra nos tombstones e remove da lista local
             recordDeletedParticipantIds([data]);
@@ -2559,6 +2774,11 @@ export function initMultiDeviceSync(): () => void {
           setSyncStatus('connected');
         }
 
+        // Se houver dados acumulados offline, descarrega a fila com o servidor
+        if (getPendingOfflineCount() > 0) {
+          flushOfflineQueue();
+        }
+
         // A cada 3 ciclos (~9 segundos), roda syncWithServer completo para reconciliação multi-origem
         if (pollCycleCount % 3 === 0 && typeof window !== 'undefined') {
           syncWithServer();
@@ -2569,28 +2789,83 @@ export function initMultiDeviceSync(): () => void {
       });
   }, 3000);
 
-  // Sincroniza ao voltar a ter internet ou focar na janela
-  const handleOnline = () => {
+  // Sincroniza ao voltar a ter internet ou focar na janela (inclusive tela do celular desbloqueada)
+  const handleResume = () => {
     setSyncStatus('connecting');
+    flushOfflineQueue();
     syncWithServer();
-    if (!eventSource) connectSSE();
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+      connectSSE();
+    }
   };
 
   const handleVisibilityChange = () => {
     if (document.visibilityState === 'visible') {
-      syncWithServer();
+      handleResume();
     }
   };
 
-  window.addEventListener('online', handleOnline);
+  window.addEventListener('online', handleResume);
   window.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('pageshow', handleResume);
+  window.addEventListener('focus', handleResume);
 
   return () => {
     if (eventSource) eventSource.close();
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
     clearInterval(pollInterval);
-    window.removeEventListener('online', handleOnline);
+    window.removeEventListener('online', handleResume);
     window.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('pageshow', handleResume);
+    window.removeEventListener('focus', handleResume);
     isInitialized = false;
   };
+}
+
+/**
+ * Ordena participantes com precisão alfabética brasileira (A-Z ou Z-A) por Nome ou por Empresa.
+ */
+export function sortParticipantsAlphabetically(
+  participants: Participant[],
+  by: 'name' | 'company' | 'registration' | 'recent' = 'name',
+  direction: 'asc' | 'desc' = 'asc'
+): Participant[] {
+  return [...participants].sort((a, b) => {
+    if (by === 'name') {
+      const cmp = (a?.fullName || '').localeCompare(b?.fullName || '', 'pt-BR', { sensitivity: 'base' });
+      return direction === 'asc' ? cmp : -cmp;
+    }
+    if (by === 'company') {
+      const cmpCompany = (a?.company || '').localeCompare(b?.company || '', 'pt-BR', { sensitivity: 'base' });
+      if (cmpCompany !== 0) {
+        return direction === 'asc' ? cmpCompany : -cmpCompany;
+      }
+      // Se da mesma empresa, desempata em ordem alfabética de Nome
+      return (a?.fullName || '').localeCompare(b?.fullName || '', 'pt-BR', { sensitivity: 'base' });
+    }
+    if (by === 'registration') {
+      const numA = parseInt(String(a?.registrationNumber || '0').replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt(String(b?.registrationNumber || '0').replace(/\D/g, ''), 10) || 0;
+      return direction === 'asc' ? numA - numB : numB - numA;
+    }
+    // recent
+    const timeA = new Date(a?.createdAt || 0).getTime();
+    const timeB = new Date(b?.createdAt || 0).getTime();
+    return direction === 'asc' ? timeA - timeB : timeB - timeA;
+  });
+}
+
+/**
+ * Retorna todas as empresas cadastradas sem duplicidade, rigorosamente em ordem alfabética A-Z.
+ */
+export function getRegisteredCompaniesAlphabetical(): string[] {
+  const participants = getStoredParticipants();
+  const set = new Set<string>();
+  participants.forEach((p) => {
+    const c = (p?.company || '').trim();
+    if (c && c.toLowerCase() !== 'não informada' && c.toLowerCase() !== 'nao informada') {
+      set.add(c);
+    }
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
 }

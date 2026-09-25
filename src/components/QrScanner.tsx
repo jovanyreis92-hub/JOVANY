@@ -9,18 +9,36 @@ import {
   Building2, 
   User, 
   Volume2, 
-  VolumeX,
-  Info,
-  RefreshCw,
-  Zap,
-  Sparkles,
-  Clock,
-  Check,
-  CheckCheck
+  VolumeX, 
+  Info, 
+  RefreshCw, 
+  Zap, 
+  Sparkles, 
+  Clock, 
+  Check, 
+  CheckCheck,
+  Sun,
+  Flashlight,
+  Edit3,
+  XCircle,
+  Wifi,
+  WifiOff,
+  Sliders,
+  ShieldCheck,
+  Calendar,
+  FileText
 } from 'lucide-react';
-import { Participant, ScanResult } from '../types';
-import { markAttendanceByCode } from '../utils/storage';
+import { Participant, ScanResult, EventItem } from '../types';
+import { 
+  markAttendanceByCode, 
+  toggleAttendance, 
+  getPendingOfflineCount, 
+  flushOfflineQueue, 
+  getStoredEvents,
+  getStoredParticipants
+} from '../utils/storage';
 import { playSuccessBeep, playWarningBeep, playErrorBeep } from '../utils/audio';
+import { EditParticipantModal } from './EditParticipantModal';
 
 interface QrScannerProps {
   onAttendanceMarked: (participant: Participant) => void;
@@ -41,6 +59,20 @@ export const QrScanner: React.FC<QrScannerProps> = ({
   const facingMode = 'environment';
   const [availableCameras, setAvailableCameras] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+
+  // Modos de Otimização Óptica: Anti-Reflexo e Claridade Máxima (Sol Forte)
+  const [glareMode, setGlareMode] = useState<'normal' | 'anti_glare' | 'high_brightness'>('anti_glare');
+  const [torchOn, setTorchOn] = useState<boolean>(false);
+  const [isTorchSupported, setIsTorchSupported] = useState<boolean>(false);
+
+  // Monitoramento de Rede: Online (Wi-Fi, 4G, 5G) e Offline com Fila de Sincronização
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(() => getPendingOfflineCount());
+  const [isSyncingOffline, setIsSyncingOffline] = useState<boolean>(false);
+
+  // Edição direta de cadastro pelo leitor
+  const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
+  const [eventsList, setEventsList] = useState<EventItem[]>(() => getStoredEvents());
 
   // Estados exclusivos para ALTO CHECK-IN POR QR (Modo Contínuo de Recepção Rápida)
   const [autoCheckinEnabled, setAutoCheckinEnabled] = useState<boolean>(() => {
@@ -104,6 +136,94 @@ export const QrScanner: React.FC<QrScannerProps> = ({
     }
     setAutoResetCountdown(null);
   }, []);
+
+  // Aplica filtro visual de anti-reflexo / claridade máxima no elemento de vídeo
+  useEffect(() => {
+    const container = document.getElementById(READER_ELEMENT_ID);
+    const video = container?.querySelector('video');
+    if (video) {
+      if (glareMode === 'anti_glare') {
+        video.style.filter = 'contrast(1.6) brightness(0.82) grayscale(0.85)';
+      } else if (glareMode === 'high_brightness') {
+        video.style.filter = 'contrast(1.9) brightness(0.62) grayscale(1)';
+      } else {
+        video.style.filter = 'none';
+      }
+    }
+  }, [glareMode, isScanning]);
+
+  // Monitora conectividade de rede e fila de sincronização
+  useEffect(() => {
+    const updateOnline = () => {
+      const online = navigator.onLine;
+      setIsOnline(online);
+      if (online) {
+        flushOfflineQueue().then(() => setPendingSyncCount(getPendingOfflineCount()));
+      }
+    };
+    const updateQueue = () => setPendingSyncCount(getPendingOfflineCount());
+
+    window.addEventListener('online', updateOnline);
+    window.addEventListener('offline', updateOnline);
+    window.addEventListener('offline-queue-changed', updateQueue);
+    window.addEventListener('attendance-confirmed', updateQueue);
+    window.addEventListener('attendance-absent', updateQueue);
+
+    return () => {
+      window.removeEventListener('online', updateOnline);
+      window.removeEventListener('offline', updateOnline);
+      window.removeEventListener('offline-queue-changed', updateQueue);
+      window.removeEventListener('attendance-confirmed', updateQueue);
+      window.removeEventListener('attendance-absent', updateQueue);
+    };
+  }, []);
+
+  const handleManualFlush = async () => {
+    setIsSyncingOffline(true);
+    try {
+      await flushOfflineQueue();
+      setPendingSyncCount(getPendingOfflineCount());
+    } finally {
+      setIsSyncingOffline(false);
+    }
+  };
+
+  const toggleTorch = async () => {
+    try {
+      const container = document.getElementById(READER_ELEMENT_ID);
+      const video = container?.querySelector('video');
+      const stream = video?.srcObject as MediaStream;
+      const track = stream?.getVideoTracks()[0];
+      if (track) {
+        const nextTorch = !torchOn;
+        await (track as any).applyConstraints({
+          advanced: [{ torch: nextTorch }],
+        });
+        setTorchOn(nextTorch);
+      }
+    } catch (e) {
+      console.warn('Lanterna não disponível:', e);
+    }
+  };
+
+  const handleToggleAttendanceResult = (participant: Participant) => {
+    const res = toggleAttendance(participant.id);
+    if (res.participant) {
+      onAttendanceMarked(res.participant);
+      setScanResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              type: res.attended ? 'success' : 'already_checked',
+              message: res.attended
+                ? 'Presença reconfirmada com sucesso!'
+                : 'Presença desmarcada (Ausente).',
+              participant: res.participant!,
+            }
+          : null
+      );
+    }
+  };
 
   const triggerAutoReset = useCallback((seconds: number = 3) => {
     clearAutoReset();
@@ -303,14 +423,15 @@ export const QrScanner: React.FC<QrScannerProps> = ({
       });
       scannerRef.current = html5QrCode;
 
-      // Configurações de leitura otimizadas para detecção rápida e nítida
+      // Configurações de leitura de alta velocidade (30 FPS) com detecção nítida
       const config = {
-        fps: 20,
+        fps: 30, // 30 quadros por segundo para leitura sub-30ms
         qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-          const size = Math.max(Math.floor(minEdge * 0.8), 220);
+          const size = Math.max(Math.floor(minEdge * 0.85), 240);
           return { width: size, height: size };
         },
+        aspectRatio: 1.0,
       };
 
       // Determina qual câmera usar
@@ -320,12 +441,15 @@ export const QrScanner: React.FC<QrScannerProps> = ({
 
       // Se há lista de câmeras e nenhuma foi selecionada explicitamente, busca traseira ou primeira
       if (!camIdToUse && cameras.length > 0) {
-        const backCam = cameras.find(c => 
-          c.label.toLowerCase().includes('back') || 
-          c.label.toLowerCase().includes('traseira') ||
-          c.label.toLowerCase().includes('rear') ||
-          c.label.toLowerCase().includes('environment')
-        );
+        const backCam = cameras.find(c => {
+          const lbl = (c?.label || '').toLowerCase();
+          return (
+            lbl.includes('back') || 
+            lbl.includes('traseira') ||
+            lbl.includes('rear') ||
+            lbl.includes('environment')
+          );
+        });
 
         if (backCam) {
           cameraTarget = backCam.id;
@@ -372,6 +496,31 @@ export const QrScanner: React.FC<QrScannerProps> = ({
           throw firstErr;
         }
       }
+
+      // Detecta suporte a lanterna (Torch) e aplica filtro anti-reflexo inicial
+      setTimeout(() => {
+        try {
+          const container = document.getElementById(READER_ELEMENT_ID);
+          const video = container?.querySelector('video');
+          const stream = video?.srcObject as MediaStream;
+          const track = stream?.getVideoTracks()[0];
+          if (track && typeof track.getCapabilities === 'function') {
+            const caps = track.getCapabilities() as any;
+            if (caps && caps.torch) {
+              setIsTorchSupported(true);
+            }
+          }
+          if (video) {
+            if (glareMode === 'anti_glare') {
+              video.style.filter = 'contrast(1.45) brightness(0.85) saturate(1.2)';
+            } else if (glareMode === 'high_brightness') {
+              video.style.filter = 'contrast(1.65) brightness(0.68) grayscale(0.2)';
+            } else {
+              video.style.filter = 'none';
+            }
+          }
+        } catch {}
+      }, 400);
 
       if (isMountedRef.current) {
         setIsScanning(true);
@@ -460,7 +609,11 @@ export const QrScanner: React.FC<QrScannerProps> = ({
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-semibold tracking-wide border border-emerald-400/20">
                   <Camera className="h-3.5 w-3.5" />
-                  <span>Portaria & Recepção</span>
+                  <span>Leitura Exclusiva via Câmera do Leitor</span>
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-500/20 text-sky-300 text-xs font-semibold border border-sky-400/30">
+                  <Wifi className="h-3.5 w-3.5 text-sky-400" />
+                  <span>Redes 3G/4G/5G, Wi-Fi & 100% Offline</span>
                 </div>
                 {sessionCheckinCount > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold border border-emerald-400/30">
@@ -475,13 +628,27 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                   Auto Check-in
                 </span>
               </h2>
-              <p className="text-slate-300 text-sm mt-0.5">
-                Validação e confirmação de presença instantânea contínua com auto-reset para o próximo crachá.
-              </p>
             </div>
 
-            {/* Controles de Som, Auto Check-in e Câmera */}
+            {/* Controles de Som, Auto Check-in, Lanterna e Filtro Óptico */}
             <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+              {isTorchSupported && isScanning && (
+                <button
+                  id="btn-toggle-torch"
+                  type="button"
+                  onClick={toggleTorch}
+                  className={`p-2 sm:px-3 sm:py-2 rounded-xl text-xs font-medium border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    torchOn
+                      ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold shadow-md shadow-amber-400/30'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                  title={torchOn ? 'Desligar lanterna' : 'Ligar lanterna para iluminar crachás reflexivos'}
+                >
+                  <Flashlight className={`h-4 w-4 ${torchOn ? 'fill-current animate-pulse' : ''}`} />
+                  <span className="hidden sm:inline">{torchOn ? 'Lanterna Ligada' : 'Lanterna'}</span>
+                </button>
+              )}
+
               <button
                 id="btn-toggle-auto-checkin"
                 type="button"
@@ -513,24 +680,91 @@ export const QrScanner: React.FC<QrScannerProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Seletor de Otimização Óptica: Normal vs Anti-Reflexo vs Claridade Máxima */}
+          <div className="mt-4 pt-3 border-t border-slate-700/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
+              <Sliders className="h-3.5 w-3.5 text-sky-400" />
+              <span>Otimização da Câmera:</span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-slate-800/90 p-1 rounded-xl border border-slate-700">
+              <button
+                type="button"
+                onClick={() => setGlareMode('normal')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                  glareMode === 'normal'
+                    ? 'bg-slate-700 text-white shadow-xs font-semibold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Normal
+              </button>
+              <button
+                type="button"
+                onClick={() => setGlareMode('anti_glare')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-all flex items-center gap-1 cursor-pointer ${
+                  glareMode === 'anti_glare'
+                    ? 'bg-sky-600 text-white shadow-xs font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Aumenta o contraste e reduz o brilho para ler crachás com película de plástico ou telas de celular com reflexo"
+              >
+                <Sparkles className="h-3 w-3 text-sky-300" />
+                <span>Anti-Reflexo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setGlareMode('high_brightness')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-all flex items-center gap-1 cursor-pointer ${
+                  glareMode === 'high_brightness'
+                    ? 'bg-amber-500 text-slate-950 shadow-xs font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Filtro de alta densidade para ambientes externos com sol forte ou iluminação de palco"
+              >
+                <Sun className="h-3 w-3" />
+                <span>Claridade Máxima</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Faixa de Status de Sincronização em Tempo Real Multi-Rede */}
-        <div className="flex items-center justify-between px-5 py-2.5 bg-slate-900 border-t border-b border-slate-800 text-xs text-slate-300">
-          <div className="flex items-center gap-2">
-            <span className="flex h-2.5 w-2.5 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-            </span>
-            <span className="font-semibold text-emerald-400">Sincronização em Rede Ativa</span>
-            <span className="hidden sm:inline text-slate-400">
-              • Leituras QR confirmam presença simultaneamente em computadores e celulares (Wi-Fi, 4G e 5G)
-            </span>
+        {/* Notificação discreta de Modo Offline ou sincronização pendente */}
+        {!isOnline && (
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-2 border-t border-b text-xs bg-amber-950/80 border-amber-800 text-amber-200">
+            <div className="flex items-center gap-2">
+              <WifiOff className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              <span className="font-bold text-amber-300">Modo Offline</span>
+              <span className="text-amber-200/90 text-[11px]">
+                Leituras salvas localmente no aparelho
+              </span>
+            </div>
+            {pendingSyncCount > 0 && (
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[11px] font-semibold">
+                {pendingSyncCount} {pendingSyncCount === 1 ? 'pendência salva' : 'pendências salvas'}
+              </span>
+            )}
           </div>
-          <span className="text-[11px] bg-slate-800 px-2.5 py-0.5 rounded-full text-slate-300 font-mono font-medium border border-slate-700">
-            Tempo Real &lt; 100ms
-          </span>
-        </div>
+        )}
+
+        {isOnline && pendingSyncCount > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-2 border-t border-b text-xs bg-slate-900 border-slate-800 text-slate-300">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[11px] font-semibold">
+                {pendingSyncCount} {pendingSyncCount === 1 ? 'pendência offline' : 'pendências offline'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleManualFlush}
+              disabled={isSyncingOffline}
+              className="px-2.5 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <RefreshCw className={`h-3 w-3 ${isSyncingOffline ? 'animate-spin' : ''}`} />
+              <span>Sincronizar Pendências</span>
+            </button>
+          </div>
+        )}
 
         {/* Área Central de Leitura */}
         <div className="p-6">
@@ -596,7 +830,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                   <div className="absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-bounce"></div>
                 </div>
 
-                <div className="flex items-center gap-2 pointer-events-auto">
+                <div className="flex items-center gap-2 pointer-events-auto flex-wrap justify-center">
                   <button
                     id="btn-stop-camera"
                     type="button"
@@ -703,11 +937,24 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                     {scanResult.message}
                   </p>
 
-                  {/* Badge de Confirmação Sincronizada em Rede */}
+                  {/* Badge de Confirmação Sincronizada em Rede ou Gravado Offline */}
                   {scanResult.type === 'success' && (
-                    <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600/10 text-emerald-800 text-[11px] font-semibold border border-emerald-500/25">
-                      <CheckCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                      <span>Sincronizado: Presença confirmada em todos os celulares e computadores conectados</span>
+                    <div className={`mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
+                      isOnline
+                        ? 'bg-emerald-600/10 text-emerald-800 border-emerald-500/25'
+                        : 'bg-amber-600/10 text-amber-900 border-amber-500/30'
+                    }`}>
+                      {isOnline ? (
+                        <>
+                          <CheckCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                          <span>Sincronizado: Presença confirmada em todos os celulares e computadores conectados (Rede 3G/4G/5G/Wi-Fi)</span>
+                        </>
+                      ) : (
+                        <>
+                          <WifiOff className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                          <span>Gravado no Aparelho (Modo Offline): Presença salva com sucesso! Sincronização automática ao reconectar.</span>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -718,26 +965,119 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                     </div>
                   )}
 
-                  {/* Informações detalhadas do participante se encontrado */}
+                  {/* Cartão Completo de Informações do Participante (Modo Offline e Online) */}
                   {scanResult.participant && (
-                    <div className="mt-3 pt-3 border-t border-black/10 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <User className="h-3.5 w-3.5 opacity-60 shrink-0" />
-                        <span className="font-semibold truncate">
+                    <div className="mt-3 pt-3 border-t border-black/10">
+                      <div className="bg-white/90 backdrop-blur-xs rounded-xl p-3 sm:p-4 border border-slate-200/90 shadow-2xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                            <User className="h-3.5 w-3.5 text-primary-theme" />
+                            <span>Ficha do Participante {isOnline ? '(Online)' : '(Modo Offline)'}</span>
+                          </span>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                            scanResult.participant.attended
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : 'bg-rose-100 text-rose-800 border-rose-300'
+                          }`}>
+                            {scanResult.participant.attended ? 'Presença Confirmada' : 'Ausente'}
+                          </span>
+                        </div>
+
+                        {/* Nome Grande e Nítido do Participante */}
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 leading-snug">
                           {scanResult.participant.fullName}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Hash className="h-3.5 w-3.5 opacity-60 shrink-0" />
-                        <span className="font-mono font-medium">
-                          {scanResult.participant.registrationNumber}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Building2 className="h-3.5 w-3.5 opacity-60 shrink-0" />
-                        <span className="truncate">
-                          {scanResult.participant.company}
-                        </span>
+                        </h3>
+
+                        {/* Grid com Dados do Participante */}
+                        <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+                          <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                            <Hash className="h-4 w-4 text-sky-600 shrink-0" />
+                            <div className="min-w-0">
+                              <span className="text-[10px] text-slate-500 font-medium block">Matrícula</span>
+                              <span className="font-mono font-bold text-slate-800 truncate block">
+                                {scanResult.participant.registrationNumber || 'Sem número'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                            <Building2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                            <div className="min-w-0">
+                              <span className="text-[10px] text-slate-500 font-medium block">Empresa</span>
+                              <span className="font-bold text-slate-800 truncate block">
+                                {scanResult.participant.company || 'Não informada'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                            <Calendar className="h-4 w-4 text-purple-600 shrink-0" />
+                            <div className="min-w-0">
+                              <span className="text-[10px] text-slate-500 font-medium block">Evento</span>
+                              <span className="font-bold text-slate-800 truncate block">
+                                {scanResult.participant.eventName || 'Evento Geral'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Aviso Exclusivo do Modo Offline */}
+                        {!isOnline && (
+                          <div className="mt-2.5 p-2 rounded-lg bg-amber-50 border border-amber-200/80 text-[11px] text-amber-900 flex items-start gap-1.5">
+                            <WifiOff className="h-3.5 w-3.5 text-amber-700 shrink-0 mt-0.5" />
+                            <span>
+                              <strong>Informações confirmadas no aparelho (Modo Offline):</strong> O participante foi identificado e sua presença está registrada na memória local. Ao reconectar ao 3G/4G/5G ou Wi-Fi, a sincronização em rede ocorrerá automaticamente.
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Botões de Ação Imediata: Alternar Presença, Atualizar Cadastro e Fixar na Tela */}
+                        <div className="mt-3 pt-2.5 border-t border-slate-200 flex flex-wrap items-center gap-2">
+                          <button
+                            id="btn-scan-toggle-attendance"
+                            type="button"
+                            onClick={() => handleToggleAttendanceResult(scanResult.participant!)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                              scanResult.participant.attended
+                                ? 'bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                            }`}
+                          >
+                            {scanResult.participant.attended ? (
+                              <>
+                                <XCircle className="h-3.5 w-3.5 text-rose-700" />
+                                <span>Alterar para Ausente</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="h-3.5 w-3.5 text-white" />
+                                <span>Confirmar Presença</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            id="btn-scan-edit-participant"
+                            type="button"
+                            onClick={() => setEditingParticipant(scanResult.participant!)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <Edit3 className="h-3.5 w-3.5 text-slate-600" />
+                            <span>Atualizar Cadastro</span>
+                          </button>
+
+                          {autoCheckinEnabled && autoResetCountdown !== null && (
+                            <button
+                              id="btn-scan-pin-info"
+                              type="button"
+                              onClick={clearAutoReset}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Manter informações do participante fixadas na tela"
+                            >
+                              <span>Fixar na Tela</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -780,9 +1120,24 @@ export const QrScanner: React.FC<QrScannerProps> = ({
               </div>
               <div className="space-y-1.5">
                 {recentCheckins.map((item, idx) => (
-                  <div
+                  <button
                     key={`${item.id}-${idx}`}
-                    className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs"
+                    type="button"
+                    onClick={() => {
+                      const fresh = getStoredParticipants();
+                      const found = fresh.find((p) => p.id === item.id);
+                      if (found) {
+                        clearAutoReset();
+                        setScanResult({
+                          type: 'success',
+                          message: 'Ficha do participante recuperada da sessão.',
+                          participant: found,
+                          timestamp: item.time,
+                        });
+                      }
+                    }}
+                    className="w-full text-left flex items-center justify-between p-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-xs shadow-2xs transition-colors cursor-pointer"
+                    title="Clique para ver a ficha completa deste participante"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="h-6 w-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
@@ -796,7 +1151,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                     <span className="text-[11px] font-mono text-emerald-700 font-medium shrink-0 ml-2">
                       {item.time}
                     </span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -852,6 +1207,29 @@ export const QrScanner: React.FC<QrScannerProps> = ({
           )}
         </div>
       </div>
+
+      {/* Modal de Atualização Imediata de Cadastro acionado a partir do Leitor QR */}
+      {editingParticipant && (
+        <EditParticipantModal
+          isOpen={Boolean(editingParticipant)}
+          participant={editingParticipant}
+          events={eventsList}
+          onClose={() => setEditingParticipant(null)}
+          onSuccess={(updated) => {
+            setEditingParticipant(null);
+            onAttendanceMarked(updated);
+            setScanResult((prev) =>
+              prev && prev.participant?.id === updated.id
+                ? {
+                    ...prev,
+                    message: 'Cadastro atualizado e sincronizado com sucesso!',
+                    participant: updated,
+                  }
+                : prev
+            );
+          }}
+        />
+      )}
     </div>
   );
 };

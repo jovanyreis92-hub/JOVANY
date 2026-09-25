@@ -95,9 +95,10 @@ export const UsersManagementModal: React.FC<UsersManagementModalProps> = ({
 
   // Filtragem de usuários
   const filteredUsers = users.filter((u) => {
-    const term = searchTerm.toLowerCase().trim();
+    if (!u) return false;
+    const term = (searchTerm || '').toLowerCase().trim();
     if (!term) return true;
-    return u.username.toLowerCase().includes(term);
+    return (u.username || '').toLowerCase().includes(term);
   });
 
   const handleCreateUser = (e: React.FormEvent) => {
@@ -105,8 +106,8 @@ export const UsersManagementModal: React.FC<UsersManagementModalProps> = ({
     setCreateError(null);
     setCreateSuccess(null);
 
-    const cleanUser = newUsername.trim().toLowerCase();
-    const cleanPass = newPassword.trim();
+    const cleanUser = (newUsername || '').trim().toLowerCase();
+    const cleanPass = (newPassword || '').trim();
 
     if (!cleanUser || cleanUser.length < 3) {
       setCreateError('O login (nome de usuário) deve conter pelo menos 3 caracteres.');
@@ -333,7 +334,7 @@ export const UsersManagementModal: React.FC<UsersManagementModalProps> = ({
                   filteredUsers.map((u) => {
                     const isCurrentSessionUser =
                       currentUser &&
-                      (currentUser.id === u.id || currentUser.username.toLowerCase() === u.username.toLowerCase());
+                      (currentUser.id === u.id || (currentUser.username || '').toLowerCase() === (u.username || '').toLowerCase());
                     const isEditingThisPassword = editingPasswordUserId === u.id;
 
                     return (

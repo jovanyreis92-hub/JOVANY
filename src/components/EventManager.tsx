@@ -215,16 +215,16 @@ export const EventManager: React.FC<EventManagerProps> = ({
     const eventParticipants = participants.filter(
       (p) => p.eventId === evt.id || (!p.eventId && evt.active)
     );
-    const cleanFileName = `lista-presenca-${evt.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+    const cleanFileName = `lista-presenca-${(evt?.name || 'evento').toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
     exportToExcel(eventParticipants, cleanFileName);
-    onShowToast(`Planilha Excel do evento "${evt.name}" exportada com sucesso!`, 'success');
+    onShowToast(`Planilha Excel do evento "${evt?.name || 'evento'}" exportada com sucesso!`, 'success');
   };
 
   const handleExportEventPDF = (evt: EventItem) => {
     const eventParticipants = participants.filter(
       (p) => p.eventId === evt.id || (!p.eventId && evt.active)
     );
-    const cleanFileName = `relatorio-presenca-${evt.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+    const cleanFileName = `relatorio-presenca-${(evt?.name || 'evento').toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
     exportToPDF(eventParticipants, cleanFileName);
     onShowToast(`Relatório em PDF do evento "${evt.name}" exportado com sucesso!`, 'success');
   };

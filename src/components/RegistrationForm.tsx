@@ -16,7 +16,7 @@ import {
   FileText
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem } from '../types';
-import { addParticipant, getStoredEvents, getActiveEvent } from '../utils/storage';
+import { addParticipant, getStoredEvents, getActiveEvent, getRegisteredCompaniesAlphabetical } from '../utils/storage';
 import { getEventRegistrationStatus, formatEventDateTime } from '../utils/eventHelper';
 import { autoCorrectAndAccent, isValidFullName } from '../utils/textCorrector';
 import { QrBadgeModal } from './QrBadgeModal';
@@ -39,7 +39,21 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   const [fullName, setFullName] = useState('');
   const [registrationNumber, setRegistrationNumber] = useState('');
   const [company, setCompany] = useState('');
+  const [registeredCompanies, setRegisteredCompanies] = useState<string[]>(() => getRegisteredCompaniesAlphabetical());
   const [events, setEvents] = useState<EventItem[]>(() => getStoredEvents());
+
+  // Atualiza empresas em ordem alfabética quando participantes forem cadastrados ou sincronizados
+  useEffect(() => {
+    const updateCompanies = () => {
+      setRegisteredCompanies(getRegisteredCompaniesAlphabetical());
+    };
+    window.addEventListener('participants-updated', updateCompanies);
+    window.addEventListener('participant-updated', updateCompanies);
+    return () => {
+      window.removeEventListener('participants-updated', updateCompanies);
+      window.removeEventListener('participant-updated', updateCompanies);
+    };
+  }, []);
   const [selectedEventId, setSelectedEventId] = useState<string>(() => {
     // Verifica se há eventId na URL primeiro
     const params = new URLSearchParams(window.location.search);
@@ -424,6 +438,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               <input
                 id="input-company"
                 type="text"
+                list="registered-companies-datalist"
                 value={company}
                 onChange={(e) => setCompany(e.target.value.toUpperCase())}
                 onBlur={() => setCompany(autoCorrectAndAccent(company))}
@@ -435,7 +450,17 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-primary-theme focus:border-primary-theme transition-all text-sm uppercase"
                 required
               />
+              <datalist id="registered-companies-datalist">
+                {registeredCompanies.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
             </div>
+            {registeredCompanies.length > 0 && (
+              <p className="text-[11px] text-slate-500">
+                Empresas cadastradas disponíveis em ordem alfabética (selecione da lista ou digite uma nova).
+              </p>
+            )}
           </div>
 
           {/* Botão de Envio */}

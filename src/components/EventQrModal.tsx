@@ -73,7 +73,7 @@ export const EventQrModal: React.FC<EventQrModalProps> = ({
 
   const handleDownloadQr = () => {
     if (!qrDataUrl) return;
-    const cleanName = event.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const cleanName = (event?.name || 'evento').toLowerCase().replace(/[^a-z0-9]/g, '-');
     const link = document.createElement('a');
     link.href = qrDataUrl;
     link.download = `qrcode-evento-${cleanName}.png`;

@@ -38,15 +38,16 @@ export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
 
   // Filtro de busca adicional
   const filteredLog = useMemo(() => {
-    if (!searchTerm.trim()) {
+    const term = (searchTerm || '').trim().toLowerCase();
+    if (!term) {
       return attendedParticipants;
     }
-    const term = searchTerm.toLowerCase();
     return attendedParticipants.filter((p) => {
-      const matchName = p.fullName.toLowerCase().includes(term);
-      const matchMatricula = p.registrationNumber.toLowerCase().includes(term);
-      const matchCompany = p.company.toLowerCase().includes(term);
-      const matchEvent = p.eventName ? p.eventName.toLowerCase().includes(term) : false;
+      if (!p) return false;
+      const matchName = (p.fullName || '').toLowerCase().includes(term);
+      const matchMatricula = (p.registrationNumber || '').toLowerCase().includes(term);
+      const matchCompany = (p.company || '').toLowerCase().includes(term);
+      const matchEvent = p.eventName ? (p.eventName || '').toLowerCase().includes(term) : false;
       return matchName || matchMatricula || matchCompany || matchEvent;
     });
   }, [attendedParticipants, searchTerm]);

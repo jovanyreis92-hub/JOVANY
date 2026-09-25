@@ -595,7 +595,7 @@ export const CompanySettingsModal: React.FC<CompanySettingsModalProps> = ({
               {/* Presets de Cores Corporativas */}
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {COLOR_PRESETS.map((preset) => {
-                  const isSelected = selectedPrimaryColor.toLowerCase() === preset.hex.toLowerCase();
+                  const isSelected = (selectedPrimaryColor || '').toLowerCase() === (preset?.hex || '').toLowerCase();
                   return (
                     <button
                       key={preset.id}
