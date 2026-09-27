@@ -12,7 +12,8 @@ import {
   initMultiDeviceSync, 
   isAdminLoggedIn, 
   setAdminLoggedIn,
-  markAttendanceByCode 
+  markAttendanceByCode,
+  isTestParticipant 
 } from './utils/storage';
 import { playSuccessBeep, playWarningBeep, playErrorBeep } from './utils/audio';
 import { applyLayoutPreferences } from './utils/theme';
@@ -45,6 +46,7 @@ import {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('register');
+  const [adminSubTab, setAdminSubTab] = useState<'participants' | 'scanner' | 'events'>('participants');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => isAdminLoggedIn());
   const [companySettings, setCompanySettings] = useState<CompanySettings>(getCompanySettings());
@@ -173,6 +175,7 @@ export default function App() {
       const custom = e as CustomEvent<{ participant?: Participant; timestamp?: string; synced?: boolean }>;
       if (custom.detail?.participant) {
         const p = custom.detail.participant;
+        if (isTestParticipant(p)) return;
         const time = custom.detail.timestamp
           ? new Date(custom.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -195,6 +198,7 @@ export default function App() {
       const custom = e as CustomEvent<{ participant?: Participant; timestamp?: string; synced?: boolean }>;
       if (custom.detail?.participant) {
         const p = custom.detail.participant;
+        if (isTestParticipant(p)) return;
         const time = custom.detail.timestamp
           ? new Date(custom.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -382,13 +386,15 @@ export default function App() {
                 companySettings={companySettings}
                 onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
                 onOpenMobileShare={() => setIsMobileShareOpen(true)}
+                adminSubTab={adminSubTab}
+                setAdminSubTab={setAdminSubTab}
               />
             </motion.div>
           )}
         </AnimatePresence>
       </main>
 
-      {/* Barra de Navegação Inferior Fixa para Dispositivos Móveis */}
+      {/* Barra de Navegação Inferior Fixa para Dispositivos Móveis (Rodapé do Celular) */}
       <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-2 shadow-lg flex items-center justify-around">
         <button
           id="mobile-tab-register"
@@ -402,26 +408,38 @@ export default function App() {
           <span>Cadastro</span>
         </button>
 
-        <button
-          id="mobile-tab-scanner"
-          type="button"
-          onClick={() => setActiveTab('scanner')}
-          className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
-            activeTab === 'scanner' ? 'text-emerald-600 font-bold' : 'text-slate-500'
-          }`}
-        >
-          <div className="h-7 w-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-            <Camera className="h-4 w-4" />
-          </div>
-          <span className="font-semibold text-emerald-700">Leitor QR</span>
-        </button>
+        {/* Tecla de Leitor QR no rodapé: SOMENTE PRA CELULAR e SOMENTE NO PAINEL DE ADMINISTRADOR */}
+        {activeTab === 'admin' && isAdminAuthenticated && (
+          <button
+            id="mobile-tab-scanner"
+            type="button"
+            onClick={() => setAdminSubTab('scanner')}
+            className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
+              adminSubTab === 'scanner' ? 'text-emerald-600 font-bold' : 'text-slate-500'
+            }`}
+          >
+            <div className={`h-7 w-7 rounded-full flex items-center justify-center shadow-xs transition-transform ${
+              adminSubTab === 'scanner' ? 'bg-emerald-600 text-white scale-110 ring-2 ring-emerald-300' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              <Camera className="h-4 w-4" />
+            </div>
+            <span className={adminSubTab === 'scanner' ? 'font-bold text-emerald-700' : 'font-semibold text-emerald-800'}>Leitor QR</span>
+          </button>
+        )}
 
         <button
           id="mobile-tab-admin"
           type="button"
-          onClick={() => setActiveTab('admin')}
+          onClick={() => {
+            setActiveTab('admin');
+            if (activeTab === 'admin' && isAdminAuthenticated) {
+              setAdminSubTab('participants');
+            }
+          }}
           className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg transition-colors cursor-pointer ${
-            activeTab === 'admin' ? 'text-primary-theme font-bold' : 'text-slate-500'
+            activeTab === 'admin' && (adminSubTab !== 'scanner' || !isAdminAuthenticated)
+              ? 'text-primary-theme font-bold'
+              : 'text-slate-500'
           }`}
         >
           <div className="relative">
@@ -430,7 +448,7 @@ export default function App() {
               <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full"></span>
             )}
           </div>
-          <span>Painel Admin</span>
+          <span>{activeTab === 'admin' && isAdminAuthenticated && adminSubTab === 'scanner' ? 'Voltar à Lista' : 'Painel Admin'}</span>
         </button>
       </div>
 

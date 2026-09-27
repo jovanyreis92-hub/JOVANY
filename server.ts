@@ -55,13 +55,27 @@ function persistDeletedIdsToDisk(): void {
 }
 
 function isValidParticipant(p: any): boolean {
-  return Boolean(
-    p &&
-    p.id &&
-    p.id !== 'attendance-batch' &&
-    p.fullName &&
-    !deletedParticipantIds.has(p.id)
-  );
+  if (!p || !p.id || p.id === 'attendance-batch' || !p.fullName) {
+    return false;
+  }
+  if (deletedParticipantIds.has(p.id)) {
+    return false;
+  }
+  const name = String(p.fullName || '').toLowerCase().trim();
+  const isFuncionarioTeste =
+    name.includes('funcionario teste') ||
+    name.includes('funcionário teste') ||
+    name.includes('funcinario teste') ||
+    name.includes('teste rede externa') ||
+    name.includes('teste externo');
+
+  if (isFuncionarioTeste) {
+    deletedParticipantIds.add(p.id);
+    persistDeletedIdsToDisk();
+    return false;
+  }
+
+  return true;
 }
 
 // Salva participantes de forma atômica no arquivo principal e no backup de redundância (filtrando deletados e inválidos)

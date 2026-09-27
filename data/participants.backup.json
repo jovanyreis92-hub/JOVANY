@@ -10,29 +10,5 @@
     "attended": false,
     "attendedAt": null,
     "attendanceUpdatedAt": "2026-09-24T21:42:19.917Z"
-  },
-  {
-    "id": "part_1789595124435_83b5k",
-    "fullName": "Teste Rede Externa",
-    "registrationNumber": "998877",
-    "company": "Conexão 4G/5G",
-    "eventId": "event_1",
-    "eventName": "COZINHA SHOW",
-    "createdAt": "2026-09-16T21:45:24.435Z",
-    "attended": false,
-    "attendedAt": null,
-    "attendanceUpdatedAt": "2026-09-24T21:19:01.142Z"
-  },
-  {
-    "id": "part_1789594761669_4oeks",
-    "fullName": "Teste Externo",
-    "registrationNumber": "999001",
-    "company": "Empresa Externa",
-    "eventId": "event_1",
-    "eventName": "COZINHA SHOW",
-    "createdAt": "2026-09-16T21:39:21.669Z",
-    "attended": false,
-    "attendedAt": null,
-    "attendanceUpdatedAt": "2026-09-24T21:19:00.517Z"
   }
 ]

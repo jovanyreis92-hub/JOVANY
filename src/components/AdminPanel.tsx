@@ -80,6 +80,8 @@ interface AdminPanelProps {
   companySettings?: CompanySettings;
   onOpenCompanySettings?: () => void;
   onOpenMobileShare?: () => void;
+  adminSubTab?: 'participants' | 'scanner' | 'events';
+  setAdminSubTab?: (subTab: 'participants' | 'scanner' | 'events') => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -91,6 +93,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   companySettings,
   onOpenCompanySettings,
   onOpenMobileShare,
+  adminSubTab: controlledAdminSubTab,
+  setAdminSubTab: setControlledAdminSubTab,
 }) => {
   // Estado de autenticação do painel (Login vs Registro)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -161,7 +165,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => isWebNotificationsEnabled());
 
   // Sub-Aba do Painel Admin (Participantes vs Leitor QR vs Gestão de Eventos)
-  const [adminSubTab, setAdminSubTab] = useState<'participants' | 'scanner' | 'events'>('participants');
+  const [internalAdminSubTab, setInternalAdminSubTab] = useState<'participants' | 'scanner' | 'events'>('participants');
+  const adminSubTab = controlledAdminSubTab !== undefined ? controlledAdminSubTab : internalAdminSubTab;
+  const setAdminSubTab = setControlledAdminSubTab || setInternalAdminSubTab;
 
   // Lista de eventos e filtro de evento
   const [eventsList, setEventsList] = useState<EventItem[]>(() => getStoredEvents());
@@ -202,8 +208,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const handleParticipantReceived = (e: Event) => {
       const customEvent = e as CustomEvent<Participant>;
       if (customEvent.detail) {
-        const p = customEvent.detail;
-        showToast(`Novo participante recebido: ${p.fullName} (${p.company})`, 'success');
         onUpdateParticipants();
       }
     };
@@ -1788,6 +1792,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
         )}
+
+        {/* Tecla de Leitor de QR Code no Rodapé - Somente para Celular e Somente no Painel de Administrador */}
+        <div className="sm:hidden mt-4 pt-1 text-center">
+          <button
+            id="btn-admin-mobile-footer-qr-scanner"
+            type="button"
+            onClick={() => setAdminSubTab('scanner')}
+            className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-2xl shadow-lg transition-all text-sm cursor-pointer"
+          >
+            <Camera className="h-5 w-5" />
+            <span>Abrir Leitor de QR Code</span>
+          </button>
+        </div>
       </div>
           </motion.div>
         )}

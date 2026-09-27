@@ -1039,6 +1039,18 @@ export function mergeParticipantLists(
   };
 }
 
+export function isTestParticipant(p: any): boolean {
+  if (!p) return false;
+  const name = String(p.fullName || '').toLowerCase().trim();
+  return (
+    name.includes('funcionario teste') ||
+    name.includes('funcionário teste') ||
+    name.includes('funcinario teste') ||
+    name.includes('teste rede externa') ||
+    name.includes('teste externo')
+  );
+}
+
 export function getStoredParticipants(): Participant[] {
   try {
     const deletedIds = getDeletedParticipantIds();
@@ -1050,7 +1062,14 @@ export function getStoredParticipants(): Participant[] {
         try {
           const backupList = JSON.parse(backupRaw);
           if (Array.isArray(backupList) && backupList.length > 0) {
-            const filteredBackup = backupList.filter((p) => p && p.id && !deletedIds.has(p.id));
+            const filteredBackup = backupList.filter((p) => {
+              if (!p || !p.id) return false;
+              if (deletedIds.has(p.id) || isTestParticipant(p)) {
+                if (p.id && !deletedIds.has(p.id)) recordDeletedParticipantIds([p.id]);
+                return false;
+              }
+              return true;
+            });
             localStorage.setItem(STORAGE_KEY, JSON.stringify(filteredBackup));
             return filteredBackup;
           }
@@ -1061,8 +1080,15 @@ export function getStoredParticipants(): Participant[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     
-    // Filtra estritamente participantes excluídos
-    const filtered = parsed.filter((p) => p && p.id && !deletedIds.has(p.id));
+    // Filtra estritamente participantes excluídos e cadastros de teste
+    const filtered = parsed.filter((p) => {
+      if (!p || !p.id) return false;
+      if (deletedIds.has(p.id) || isTestParticipant(p)) {
+        if (p.id && !deletedIds.has(p.id)) recordDeletedParticipantIds([p.id]);
+        return false;
+      }
+      return true;
+    });
     if (filtered.length !== parsed.length) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
       localStorage.setItem(MASTER_BACKUP_STORAGE_KEY, JSON.stringify(filtered));
@@ -1077,7 +1103,14 @@ export function getStoredParticipants(): Participant[] {
 export function saveParticipants(participants: Participant[], broadcastLocal = true): void {
   try {
     const deletedIds = getDeletedParticipantIds();
-    const sanitized = participants.filter((p) => p && p.id && !deletedIds.has(p.id));
+    const sanitized = participants.filter((p) => {
+      if (!p || !p.id) return false;
+      if (deletedIds.has(p.id) || isTestParticipant(p)) {
+        if (p.id && !deletedIds.has(p.id)) recordDeletedParticipantIds([p.id]);
+        return false;
+      }
+      return true;
+    });
     
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
     // Salva cópia imediata no backup persistente sincronizada (sem dados excluídos)
