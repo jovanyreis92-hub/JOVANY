@@ -1154,6 +1154,47 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
   } catch {}
 }
 
+// Despacho de confirmação de presença com desduplicação ultra-rápida (evita múltiplos alertas no mesmo segundo)
+const recentDispatchedAttendance = new Map<string, number>();
+export function notifyAttendanceConfirmed(detail: { participant?: Participant; timestamp?: string | null; synced?: boolean; source?: string }): void {
+  const pId = detail?.participant?.id;
+  const now = Date.now();
+  if (pId) {
+    const last = recentDispatchedAttendance.get(pId) || 0;
+    if (now - last < 1500) {
+      return;
+    }
+    recentDispatchedAttendance.set(pId, now);
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('attendance-confirmed', { detail }));
+    if (localBroadcastChannel) {
+      try {
+        localBroadcastChannel.postMessage({
+          type: 'attendance_confirmed',
+          detail,
+          timestamp: now,
+        });
+      } catch {}
+    }
+  }
+}
+
+export function notifyAttendanceAbsent(detail: { participant?: Participant; timestamp?: string | null; synced?: boolean }): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('attendance-absent', { detail }));
+    if (localBroadcastChannel) {
+      try {
+        localBroadcastChannel.postMessage({
+          type: 'attendance_absent',
+          detail,
+          timestamp: Date.now(),
+        });
+      } catch {}
+    }
+  }
+}
+
 export function saveParticipants(participants: Participant[], broadcastLocal = true): void {
   try {
     const deletedIds = getDeletedParticipantIds();
@@ -1824,17 +1865,9 @@ export function toggleAttendance(id: string): { participant: Participant | null;
     window.dispatchEvent(new CustomEvent('participant-updated', { detail: updatedParticipant }));
     window.dispatchEvent(new CustomEvent('attendance-updated', { detail: updatedParticipant }));
     if (newAttended) {
-      window.dispatchEvent(
-        new CustomEvent('attendance-confirmed', {
-          detail: { participant: updatedParticipant, timestamp: now, synced: true },
-        })
-      );
+      notifyAttendanceConfirmed({ participant: updatedParticipant, timestamp: now, synced: true });
     } else {
-      window.dispatchEvent(
-        new CustomEvent('attendance-absent', {
-          detail: { participant: updatedParticipant, timestamp: now, synced: true },
-        })
-      );
+      notifyAttendanceAbsent({ participant: updatedParticipant, timestamp: now, synced: true });
     }
   }
 
@@ -2118,11 +2151,12 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
 
     // Dispara eventos locais imediatos para atualizar todas as telas locais
     window.dispatchEvent(new CustomEvent('participant-updated', { detail: confirmedParticipant }));
-    window.dispatchEvent(
-      new CustomEvent('attendance-confirmed', {
-        detail: { participant: confirmedParticipant, timestamp: now, synced: true },
-      })
-    );
+    notifyAttendanceConfirmed({
+      participant: confirmedParticipant,
+      timestamp: now,
+      synced: true,
+      source: 'mobile_qr',
+    });
 
     // Enfileira para garantia offline de envio a todos os computadores e celulares
     queueOfflineAttendance({
@@ -2145,6 +2179,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
         attendanceUpdatedAt: now,
         participant: confirmedParticipant,
       }),
+      keepalive: true,
     })
       .then((res) => {
         if (res.ok) {
@@ -2222,11 +2257,12 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
     });
 
     window.dispatchEvent(new CustomEvent('participant-updated', { detail: recoveredParticipant }));
-    window.dispatchEvent(
-      new CustomEvent('attendance-confirmed', {
-        detail: { participant: recoveredParticipant, timestamp: now, synced: true },
-      })
-    );
+    notifyAttendanceConfirmed({
+      participant: recoveredParticipant,
+      timestamp: now,
+      synced: true,
+      source: 'mobile_qr',
+    });
 
     // Envia ao servidor para persistência e broadcast se houver conexão
     fetch('/api/participants/attendance', {
@@ -2240,6 +2276,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
         attendanceUpdatedAt: now,
         participant: recoveredParticipant,
       }),
+      keepalive: true,
     })
       .then((res) => {
         if (res.ok) {
@@ -2632,6 +2669,12 @@ export function initMultiDeviceSync(): () => void {
     localBroadcastChannel.onmessage = (event) => {
       if (event.data?.type === 'participants_updated') {
         window.dispatchEvent(new Event('participants-updated'));
+      } else if (event.data?.type === 'attendance_confirmed' && event.data?.detail) {
+        window.dispatchEvent(new CustomEvent('attendance-confirmed', { detail: event.data.detail }));
+        window.dispatchEvent(new Event('participants-updated'));
+      } else if (event.data?.type === 'attendance_absent' && event.data?.detail) {
+        window.dispatchEvent(new CustomEvent('attendance-absent', { detail: event.data.detail }));
+        window.dispatchEvent(new Event('participants-updated'));
       }
     };
   }
@@ -2712,17 +2755,18 @@ export function initMultiDeviceSync(): () => void {
             window.dispatchEvent(new CustomEvent('participant-updated', { detail: data }));
             window.dispatchEvent(new Event('participants-updated'));
             if (data.attended) {
-              window.dispatchEvent(
-                new CustomEvent('attendance-confirmed', {
-                  detail: { participant: data, timestamp: data.attendedAt, synced: true },
-                })
-              );
+              notifyAttendanceConfirmed({
+                participant: data,
+                timestamp: data.attendedAt,
+                synced: true,
+                source: 'mobile_qr',
+              });
             } else {
-              window.dispatchEvent(
-                new CustomEvent('attendance-absent', {
-                  detail: { participant: data, timestamp: data.attendanceUpdatedAt || new Date().toISOString(), synced: true },
-                })
-              );
+              notifyAttendanceAbsent({
+                participant: data,
+                timestamp: data.attendanceUpdatedAt || new Date().toISOString(),
+                synced: true,
+              });
             }
           } else if (type === 'attendance_confirmed' && data) {
             if (data.participant) {
@@ -2734,7 +2778,13 @@ export function initMultiDeviceSync(): () => void {
               const exists = current.some((p) => p.id === pData.id);
               const updated = exists ? current.map((p) => (p.id === pData.id ? pData : p)) : [pData, ...current];
               saveParticipants(updated);
-              window.dispatchEvent(new CustomEvent('attendance-confirmed', { detail: data }));
+              window.dispatchEvent(new CustomEvent('participant-updated', { detail: pData }));
+              notifyAttendanceConfirmed({
+                participant: pData,
+                timestamp: data.timestamp || pData.attendedAt,
+                synced: true,
+                source: 'mobile_qr',
+              });
               window.dispatchEvent(new Event('participants-updated'));
             }
           } else if (type === 'attendance_absent' && data) {
@@ -2747,7 +2797,12 @@ export function initMultiDeviceSync(): () => void {
               const exists = current.some((p) => p.id === pData.id);
               const updated = exists ? current.map((p) => (p.id === pData.id ? pData : p)) : [pData, ...current];
               saveParticipants(updated);
-              window.dispatchEvent(new CustomEvent('attendance-absent', { detail: data }));
+              window.dispatchEvent(new CustomEvent('participant-updated', { detail: pData }));
+              notifyAttendanceAbsent({
+                participant: pData,
+                timestamp: data.timestamp || pData.attendanceUpdatedAt,
+                synced: true,
+              });
               window.dispatchEvent(new Event('participants-updated'));
             }
           } else if (type === 'attendance_batch_updated' && data) {

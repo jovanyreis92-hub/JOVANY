@@ -35,7 +35,11 @@ import {
   ArrowUpAZ,
   ArrowDownAZ,
   ArrowDownZA,
-  Building
+  Building,
+  Volume2,
+  VolumeX,
+  Zap,
+  CheckCircle2
 } from 'lucide-react';
 import { Participant, CompanySettings, EventItem, UserAccount } from '../types';
 import { 
@@ -55,6 +59,7 @@ import {
   sortParticipantsAlphabetically,
   getRegisteredCompaniesAlphabetical
 } from '../utils/storage';
+import { playSuccessBeep } from '../utils/audio';
 import { exportToExcel, exportToPDF } from '../utils/export';
 import {
   getNotificationPermission,
@@ -160,6 +165,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Notificação temporária de ação
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
 
+  // Confirmação instantânea de participante recebida via Leitor QR do celular simultaneamente
+  const [justConfirmedParticipant, setJustConfirmedParticipant] = useState<{
+    id: string;
+    name: string;
+    matricula: string;
+    company: string;
+    time: string;
+  } | null>(null);
+  const lastConfirmedRef = React.useRef<{ id: string; time: number } | null>(null);
+
+  // Som de confirmação do painel de controle (bip audível simultâneo)
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('admin_sound_enabled');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    if (!justConfirmedParticipant) return;
+    const timer = setTimeout(() => {
+      setJustConfirmedParticipant(null);
+    }, 9000);
+    return () => clearTimeout(timer);
+  }, [justConfirmedParticipant]);
+
   // Notificações no Navegador (Web Notifications API)
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => getNotificationPermission());
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => isWebNotificationsEnabled());
@@ -226,11 +259,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     };
 
     const handleAttendanceConfirmed = (e: Event) => {
-      const customEvent = e as CustomEvent<{ participant: Participant; timestamp: string }>;
+      const customEvent = e as CustomEvent<{ participant: Participant; timestamp?: string; source?: string }>;
       if (customEvent.detail?.participant) {
         const p = customEvent.detail.participant;
+        const nowMs = Date.now();
+        if (lastConfirmedRef.current && lastConfirmedRef.current.id === p.id && nowMs - lastConfirmedRef.current.time < 1500) {
+          onUpdateParticipants();
+          return;
+        }
+        lastConfirmedRef.current = { id: p.id, time: nowMs };
+
+        const timeStr = customEvent.detail.timestamp
+          ? new Date(customEvent.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        setJustConfirmedParticipant({
+          id: p.id,
+          name: p.fullName,
+          matricula: p.registrationNumber,
+          company: p.company || 'Não informada',
+          time: timeStr,
+        });
+
+        // Bip de confirmação instantâneo no painel de controle
+        if (soundEnabled) {
+          playSuccessBeep();
+        }
+
         showToast(
-          `Presença confirmada: ${p.fullName} (${p.registrationNumber}) - PRESENTE (sincronizado em rede)!`,
+          `⚡ Presença confirmada via Leitor QR no Celular: ${p.fullName} (${p.registrationNumber}) — PRESENTE!`,
           'success'
         );
         onUpdateParticipants();
@@ -264,7 +321,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       window.removeEventListener('attendance-confirmed', handleAttendanceConfirmed);
       window.removeEventListener('attendance-absent', handleAttendanceAbsent);
     };
-  }, [onUpdateParticipants, notificationsEnabled, notificationPermission, companySettings?.eventName, companySettings?.logoUrl]);
+  }, [onUpdateParticipants, notificationsEnabled, notificationPermission, companySettings?.eventName, companySettings?.logoUrl, soundEnabled]);
 
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -891,6 +948,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </button>
 
           <button
+            id="btn-admin-toggle-sound"
+            type="button"
+            onClick={() => {
+              setSoundEnabled((prev) => {
+                const next = !prev;
+                try {
+                  localStorage.setItem('admin_sound_enabled', String(next));
+                } catch {}
+                return next;
+              });
+            }}
+            className={`flex items-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer border ${
+              soundEnabled
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+            }`}
+            title={
+              soundEnabled
+                ? 'Som de confirmação ativado: emite sinal sonoro simultâneo ao receber presença confirmada pelo celular'
+                : 'Som desativado: clique para ativar bip sonoro de confirmação'
+            }
+          >
+            {soundEnabled ? (
+              <Volume2 className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <VolumeX className="h-4 w-4 text-slate-400" />
+            )}
+            <span>{soundEnabled ? 'Som QR: Ativo' : 'Som QR: Mudo'}</span>
+          </button>
+
+          <button
             id="btn-admin-manage-credentials"
             type="button"
             onClick={() => setIsCredentialsModalOpen(true)}
@@ -1073,6 +1161,67 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="space-y-6"
           >
+            {/* Banner de Confirmação de Presença Simultânea via Leitor QR do Celular */}
+            {justConfirmedParticipant && (
+              <div
+                id="banner-live-attendance-confirmed"
+                className="bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-700 text-white p-4 sm:p-5 rounded-2xl shadow-xl border border-emerald-400/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300 ring-2 ring-emerald-400/30"
+              >
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="h-12 w-12 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0 shadow-inner">
+                    <CheckCircle2 className="h-7 w-7 text-white animate-pulse" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-300 animate-ping" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100 bg-white/15 px-2.5 py-0.5 rounded-full border border-white/20">
+                        ⚡ Confirmação de Presença Recebida Simultaneamente do Celular!
+                      </span>
+                    </div>
+                    <p className="text-base sm:text-lg font-black text-white mt-1 truncate">
+                      {justConfirmedParticipant.name}{' '}
+                      <span className="font-mono text-emerald-100 text-xs sm:text-sm font-semibold">
+                        (Matrícula: {justConfirmedParticipant.matricula})
+                      </span>{' '}
+                      <span className="inline-flex items-center gap-1 bg-white text-emerald-800 text-xs px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider shadow-xs ml-1">
+                        <CheckCircle className="h-3 w-3 text-emerald-700" />
+                        PRESENTE
+                      </span>
+                    </p>
+                    <p className="text-xs text-emerald-100 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span>Empresa: <strong>{justConfirmedParticipant.company}</strong></span>
+                      <span>•</span>
+                      <span>Horário: <strong>{justConfirmedParticipant.time}</strong></span>
+                      <span>•</span>
+                      <span className="text-emerald-200">Sincronizado em tempo real</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const found = participants.find((p) => p.id === justConfirmedParticipant.id);
+                      if (found) setSelectedParticipantForQr(found);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-white text-emerald-900 hover:bg-emerald-50 font-bold text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-1.5"
+                  >
+                    <QrCode className="h-3.5 w-3.5 text-emerald-700" />
+                    <span>Ver Crachá</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setJustConfirmedParticipant(null)}
+                    className="p-2 text-white/80 hover:text-white rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Dispensar aviso"
+                  >
+                    <XCircle className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Cards de Métricas / KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Total */}
@@ -1448,11 +1597,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="divide-y divide-slate-100">
               {filteredParticipants.map((p) => {
                 const isSelected = selectedIds.includes(p.id);
+                const isJustConfirmed = justConfirmedParticipant?.id === p.id;
                 return (
                   <div
                     key={`mobile-${p.id}`}
-                    className={`p-3.5 transition-colors ${
-                      isSelected
+                    className={`p-3.5 transition-all duration-300 ${
+                      isJustConfirmed
+                        ? 'bg-emerald-50/95 border-l-4 border-l-emerald-600 ring-2 ring-emerald-500 shadow-md'
+                        : isSelected
                         ? 'bg-sky-50/80 border-l-4 border-l-sky-500'
                         : 'hover:bg-slate-50/60'
                     }`}
@@ -1466,7 +1618,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer mt-1"
                         />
                         <div className="min-w-0">
-                          <p className="font-bold text-sm text-slate-900 truncate">{p.fullName}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-bold text-sm text-slate-900 truncate">{p.fullName}</p>
+                            {isJustConfirmed && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white px-2 py-0.5 rounded-full shadow-xs shrink-0 animate-bounce">
+                                <Zap className="h-2.5 w-2.5 fill-white" />
+                                Validado Agora
+                              </span>
+                            )}
+                          </div>
                           <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
                             <span className="font-mono font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">
                               Mat: {p.registrationNumber}
@@ -1644,11 +1804,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               ) : (
                 filteredParticipants.map((p) => {
                   const isSelected = selectedIds.includes(p.id);
+                  const isJustConfirmed = justConfirmedParticipant?.id === p.id;
                   return (
                     <tr
                       key={p.id}
-                      className={`transition-colors ${
-                        isSelected
+                      className={`transition-all duration-300 ${
+                        isJustConfirmed
+                          ? 'bg-emerald-100/90 ring-2 ring-emerald-500 font-medium shadow-md'
+                          : isSelected
                           ? 'bg-primary-theme-soft hover:bg-primary-theme-light border-l-4 border-l-primary-theme'
                           : 'hover:bg-slate-50/80'
                       }`}
@@ -1669,7 +1832,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                       {/* Nome Completo */}
                       <td className="py-3 px-4 font-semibold text-slate-900">
-                        <div>{p.fullName}</div>
+                        <div className="flex items-center gap-2">
+                          <span>{p.fullName}</span>
+                          {isJustConfirmed && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white px-2 py-0.5 rounded-full shadow-xs animate-bounce">
+                              <Zap className="h-3 w-3 fill-white" />
+                              Validado Agora via Celular
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-slate-400 font-normal">
                           Cadastrado em {new Date(p.createdAt).toLocaleDateString('pt-BR')}
                         </div>

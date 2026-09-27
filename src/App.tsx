@@ -183,7 +183,7 @@ export default function App() {
         setLiveAttendanceNotification({
           participant: p,
           timestamp: time,
-          source: custom.detail.synced ? 'Sincronizado Multi-Rede' : 'Presença Confirmada',
+          source: (custom.detail as any).source === 'mobile_qr' ? 'Leitor QR Móvel (Tempo Real)' : (custom.detail.synced ? 'Sincronizado Multi-Rede' : 'Presença Confirmada'),
           status: 'present',
         });
 
@@ -292,9 +292,9 @@ export default function App() {
                     }`}
                   />
                   <span>
-                    {liveAttendanceNotification.status === 'present'
+                    {liveAttendanceNotification.source || (liveAttendanceNotification.status === 'present'
                       ? 'Presença Sincronizada: PRESENTE'
-                      : 'Status Sincronizado: AUSENTE'}
+                      : 'Status Sincronizado: AUSENTE')}
                   </span>
                 </div>
                 <p className="text-xs font-bold text-white truncate mt-0.5">
