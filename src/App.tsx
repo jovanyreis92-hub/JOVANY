@@ -180,10 +180,17 @@ export default function App() {
           ? new Date(custom.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+        const scanSource = (custom.detail as any).source;
+        const sourceLabel = scanSource === 'mobile_qr' || scanSource === 'mobile_toggle'
+          ? 'Leitor QR Móvel (Celular - Tempo Real)'
+          : scanSource === 'pc_qr' || scanSource === 'pc_toggle'
+          ? 'Leitor QR Computador / PC (Tempo Real)'
+          : (custom.detail.synced ? 'Sincronizado Multi-Rede' : 'Presença Confirmada');
+
         setLiveAttendanceNotification({
           participant: p,
           timestamp: time,
-          source: (custom.detail as any).source === 'mobile_qr' ? 'Leitor QR Móvel (Tempo Real)' : (custom.detail.synced ? 'Sincronizado Multi-Rede' : 'Presença Confirmada'),
+          source: sourceLabel,
           status: 'present',
         });
 

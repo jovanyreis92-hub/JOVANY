@@ -165,13 +165,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Notificação temporária de ação
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
 
-  // Confirmação instantânea de participante recebida via Leitor QR do celular simultaneamente
+  // Confirmação instantânea de participante recebida via Leitor QR do celular ou computador simultaneamente
   const [justConfirmedParticipant, setJustConfirmedParticipant] = useState<{
     id: string;
     name: string;
     matricula: string;
     company: string;
     time: string;
+    source?: string;
   } | null>(null);
   const lastConfirmedRef = React.useRef<{ id: string; time: number } | null>(null);
 
@@ -273,12 +274,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           ? new Date(customEvent.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+        const scanSource = customEvent.detail.source || 'mobile_qr';
+        const isFromMobile = scanSource === 'mobile_qr' || scanSource === 'mobile_toggle';
+        const isFromPc = scanSource === 'pc_qr' || scanSource === 'pc_toggle';
+        const sourceLabel = isFromMobile ? 'Leitor QR no Celular' : isFromPc ? 'Leitor QR no Computador/PC' : 'Leitor QR';
+
         setJustConfirmedParticipant({
           id: p.id,
           name: p.fullName,
           matricula: p.registrationNumber,
           company: p.company || 'Não informada',
           time: timeStr,
+          source: scanSource,
         });
 
         // Bip de confirmação instantâneo no painel de controle
@@ -287,7 +294,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         }
 
         showToast(
-          `⚡ Presença confirmada via Leitor QR no Celular: ${p.fullName} (${p.registrationNumber}) — PRESENTE!`,
+          `⚡ Presença confirmada simultaneamente via ${sourceLabel}: ${p.fullName} (${p.registrationNumber}) — PRESENTE!`,
           'success'
         );
         onUpdateParticipants();
@@ -1145,6 +1152,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="max-w-3xl mx-auto px-4 pb-8">
               <RecentAttendanceLog
                 participants={participants}
+                selectedEventId={eventFilter !== 'all' ? eventFilter : undefined}
+                eventsList={eventsList}
                 onViewBadge={(p) => setSelectedParticipantForQr(p)}
               />
             </div>
@@ -1175,7 +1184,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-300 animate-ping" />
                       <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100 bg-white/15 px-2.5 py-0.5 rounded-full border border-white/20">
-                        ⚡ Confirmação de Presença Recebida Simultaneamente do Celular!
+                        ⚡ Confirmação de Presença Recebida Simultaneamente ({justConfirmedParticipant.source === 'mobile_qr' || justConfirmedParticipant.source === 'mobile_toggle' ? 'via Leitor QR no Celular' : justConfirmedParticipant.source === 'pc_qr' || justConfirmedParticipant.source === 'pc_toggle' ? 'via Leitor QR no Computador/PC' : 'em Tempo Real'})!
                       </span>
                     </div>
                     <p className="text-base sm:text-lg font-black text-white mt-1 truncate">
@@ -1284,6 +1293,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Log de Eventos de Entrada Recente no Painel Administrativo */}
       <RecentAttendanceLog
         participants={participants}
+        selectedEventId={eventFilter !== 'all' ? eventFilter : undefined}
+        eventsList={eventsList}
         onViewBadge={(p) => setSelectedParticipantForQr(p)}
       />
 
@@ -1623,7 +1634,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {isJustConfirmed && (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white px-2 py-0.5 rounded-full shadow-xs shrink-0 animate-bounce">
                                 <Zap className="h-2.5 w-2.5 fill-white" />
-                                Validado Agora
+                                {justConfirmedParticipant?.source === 'mobile_qr' || justConfirmedParticipant?.source === 'mobile_toggle' ? 'Validado via Celular' : justConfirmedParticipant?.source === 'pc_qr' || justConfirmedParticipant?.source === 'pc_toggle' ? 'Validado via PC' : 'Validado Agora'}
                               </span>
                             )}
                           </div>
@@ -1837,7 +1848,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {isJustConfirmed && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white px-2 py-0.5 rounded-full shadow-xs animate-bounce">
                               <Zap className="h-3 w-3 fill-white" />
-                              Validado Agora via Celular
+                              {justConfirmedParticipant?.source === 'mobile_qr' || justConfirmedParticipant?.source === 'mobile_toggle' ? 'Validado Agora via Celular' : justConfirmedParticipant?.source === 'pc_qr' || justConfirmedParticipant?.source === 'pc_toggle' ? 'Validado Agora via PC' : 'Validado Agora'}
                             </span>
                           )}
                         </div>

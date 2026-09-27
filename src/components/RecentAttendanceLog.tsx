@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Clock, 
   Search, 
@@ -7,36 +7,104 @@ import {
   Hash, 
   QrCode, 
   Calendar, 
-  Sparkles,
-  ArrowUpDown,
   Filter
 } from 'lucide-react';
-import { Participant } from '../types';
+import { Participant, EventItem } from '../types';
+import { getStoredEvents, getActiveEvent } from '../utils/storage';
 
-interface RecentAttendanceLogProps {
+export interface RecentAttendanceLogProps {
   participants: Participant[];
   onViewBadge?: (participant: Participant) => void;
+  selectedEventId?: string; // ID do evento selecionado ou 'all'
+  eventsList?: EventItem[];
 }
 
 export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
   participants,
   onViewBadge,
+  selectedEventId: controlledEventId,
+  eventsList: controlledEventsList,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [limit, setLimit] = useState<number>(15);
+  const [events, setEvents] = useState<EventItem[]>(() => controlledEventsList || getStoredEvents());
 
-  // Filtra apenas participantes que têm presença confirmada e ordena pelos mais recentes primeiro
+  // Define o evento selecionado inicial: se veio controlado por prop, usa ele; senão usa o evento ativo do sistema
+  const [selectedEventFilter, setSelectedEventFilter] = useState<string>(() => {
+    if (controlledEventId !== undefined) return controlledEventId;
+    const active = getActiveEvent();
+    return active ? active.id : 'all';
+  });
+
+  // Sincroniza se o componente pai alterar o filtro de evento
+  useEffect(() => {
+    if (controlledEventId !== undefined) {
+      setSelectedEventFilter(controlledEventId);
+    }
+  }, [controlledEventId]);
+
+  // Sincroniza se a lista de eventos for fornecida pelo pai
+  useEffect(() => {
+    if (controlledEventsList && controlledEventsList.length > 0) {
+      setEvents(controlledEventsList);
+    }
+  }, [controlledEventsList]);
+
+  // Escuta atualizações de eventos do sistema em tempo real
+  useEffect(() => {
+    const handleEventsUpdated = (e: Event) => {
+      const custom = e as CustomEvent<EventItem[]>;
+      if (custom.detail && Array.isArray(custom.detail)) {
+        setEvents(custom.detail);
+      } else {
+        setEvents(getStoredEvents());
+      }
+    };
+    window.addEventListener('events-updated', handleEventsUpdated);
+    return () => window.removeEventListener('events-updated', handleEventsUpdated);
+  }, []);
+
+  // Objeto do evento selecionado no filtro atual
+  const currentEventObj = useMemo(() => {
+    if (selectedEventFilter === 'all') return null;
+    return events.find((e) => e.id === selectedEventFilter) || null;
+  }, [events, selectedEventFilter]);
+
+  // Filtra ESTRITAMENTE participantes com presença confirmada pertencentes ao seu RESPECTIVO EVENTO
   const attendedParticipants = useMemo(() => {
     return participants
-      .filter((p) => p.attended && p.attendedAt)
+      .filter((p) => {
+        // Exige presença confirmada e data/hora de confirmação
+        if (!p.attended || !p.attendedAt) return false;
+
+        // Se 'all' foi selecionado explicitamente, exibe todos os confirmados
+        if (selectedEventFilter === 'all') return true;
+
+        // 1. Associação direta por eventId
+        if (p.eventId && p.eventId === selectedEventFilter) return true;
+
+        // 2. Se o participante não tem eventId explícito no cadastro legado, associa ao evento ativo
+        if (!p.eventId && currentEventObj?.active) return true;
+
+        // 3. Associação pelo nome do evento (insensível a maiúsculas)
+        if (
+          p.eventName &&
+          currentEventObj?.name &&
+          p.eventName.trim().toLowerCase() === currentEventObj.name.trim().toLowerCase()
+        ) {
+          return true;
+        }
+
+        return false;
+      })
       .sort((a, b) => {
         const timeA = a.attendedAt ? new Date(a.attendedAt).getTime() : 0;
         const timeB = b.attendedAt ? new Date(b.attendedAt).getTime() : 0;
         return timeB - timeA;
       });
-  }, [participants]);
+  }, [participants, selectedEventFilter, currentEventObj]);
 
-  // Filtro de busca adicional
+  // Filtro de busca adicional dentro do respectivo evento
   const filteredLog = useMemo(() => {
     const term = (searchTerm || '').trim().toLowerCase();
     if (!term) {
@@ -117,30 +185,65 @@ export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
       <div className="p-5 sm:p-6 border-b border-slate-200/80 bg-slate-50/50">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
               <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-300/60">
                 Transmissão em Tempo Real
               </span>
+              {currentEventObj ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-amber-900 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-300 shadow-2xs">
+                  <Calendar className="h-3 w-3 text-amber-700" />
+                  <span>Evento: <strong>{currentEventObj.name}</strong></span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-slate-700 bg-slate-200/80 px-2.5 py-0.5 rounded-full border border-slate-300">
+                  <Calendar className="h-3 w-3 text-slate-500" />
+                  <span>Todos os Eventos</span>
+                </span>
+              )}
             </div>
             <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
               <Clock className="h-5 w-5 text-emerald-600" />
               <span>Log de Eventos de Entrada Recente</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Hora exata de validação e credenciamento de cada participante via leitura de QR Code.
+              {currentEventObj
+                ? `Exibindo somente confirmações de presença do evento "${currentEventObj.name}".`
+                : 'Hora exata de validação e credenciamento de cada participante via leitura de QR Code.'}
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5 self-start sm:self-center">
+          <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-center">
+            {/* Seletor do Respectivo Evento para o Log */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-2xs">
+              <Calendar className="h-3.5 w-3.5 text-primary-theme shrink-0" />
+              <label htmlFor="select-log-event-filter" className="sr-only">Filtrar log por evento</label>
+              <select
+                id="select-log-event-filter"
+                value={selectedEventFilter}
+                onChange={(e) => setSelectedEventFilter(e.target.value)}
+                className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[200px] truncate"
+                title="Mostrar presenças confirmadas pelo respectivo evento"
+              >
+                <option value="all">Todos os Eventos</option>
+                {events.map((evt) => (
+                  <option key={evt.id} value={evt.id}>
+                    {evt.name} {evt.active ? '(Ativo)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 shadow-2xs text-xs font-semibold text-slate-700 flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <span>{attendedParticipants.length} presenças validadas</span>
+              <span>
+                {attendedParticipants.length} {attendedParticipants.length === 1 ? 'presença confirmada' : 'presenças confirmadas'}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Barra de Filtro e Busca Rápida no Log */}
+        {/* Barra de Filtro e Busca Rápida no Log do Respectivo Evento */}
         {attendedParticipants.length > 0 && (
           <div className="mt-4 flex flex-col sm:flex-row items-center gap-3">
             <div className="relative flex-1 w-full">
@@ -150,14 +253,14 @@ export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Filtrar log por nome, matrícula ou empresa..."
+                placeholder={currentEventObj ? `Filtrar confirmados em "${currentEventObj.name}" por nome, matrícula ou empresa...` : "Filtrar log por nome, matrícula ou empresa..."}
                 className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
               {searchTerm && (
                 <button
                   type="button"
                   onClick={() => setSearchTerm('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   Limpar
                 </button>
@@ -193,10 +296,14 @@ export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
               <Clock className="h-7 w-7 text-slate-400" />
             </div>
             <p className="text-sm font-bold text-slate-700 mb-1">
-              Nenhuma presença validada até o momento
+              {currentEventObj
+                ? `Nenhuma presença confirmada para o evento "${currentEventObj.name}"`
+                : 'Nenhuma presença validada até o momento'}
             </p>
             <p className="text-xs text-slate-500 max-w-sm">
-              Assim que os participantes realizarem o check-in no leitor QR ou tiverem presença confirmada, os eventos de validação serão exibidos aqui instantaneamente com a hora exata.
+              {currentEventObj
+                ? `Assim que participantes realizarem check-in no evento "${currentEventObj.name}", as validações serão exibidas aqui instantaneamente.`
+                : 'Assim que os participantes realizarem o check-in no leitor QR ou tiverem presença confirmada, os eventos de validação serão exibidos aqui instantaneamente com a hora exata.'}
             </p>
           </div>
         ) : displayedLog.length === 0 ? (
@@ -206,8 +313,9 @@ export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
         ) : (
           <div className="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
             {displayedLog.map((participant, index) => {
-              const { time, date, full } = formatExactTime(participant.attendedAt);
+              const { time, date } = formatExactTime(participant.attendedAt);
               const isFirst = index === 0;
+              const pEventName = participant.eventName || (participant.eventId ? events.find((e) => e.id === participant.eventId)?.name : currentEventObj?.name) || 'COZINHA SHOW';
 
               return (
                 <div
@@ -238,6 +346,11 @@ export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
                             Última entrada
                           </span>
                         )}
+                        {/* Badge destacando o Respectivo Evento deste participante */}
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/80">
+                          <Calendar className="h-3 w-3 text-amber-700 shrink-0" />
+                          <span className="truncate max-w-[170px]">{pEventName}</span>
+                        </span>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mt-1">
@@ -252,15 +365,6 @@ export const RecentAttendanceLog: React.FC<RecentAttendanceLogProps> = ({
                             {participant.company}
                           </span>
                         </span>
-
-                        {participant.eventName && (
-                          <span className="inline-flex items-center gap-1 text-slate-600">
-                            <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                            <span className="truncate max-w-[160px]">
-                              {participant.eventName}
-                            </span>
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>

@@ -1156,6 +1156,16 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
 
 // Despacho de confirmação de presença com desduplicação ultra-rápida (evita múltiplos alertas no mesmo segundo)
 const recentDispatchedAttendance = new Map<string, number>();
+
+export function getClientDeviceSource(isManualToggle = false): string {
+  if (typeof navigator === 'undefined') return isManualToggle ? 'server_toggle' : 'server_qr';
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  if (isManualToggle) {
+    return isMobile ? 'mobile_toggle' : 'pc_toggle';
+  }
+  return isMobile ? 'mobile_qr' : 'pc_qr';
+}
+
 export function notifyAttendanceConfirmed(detail: { participant?: Participant; timestamp?: string | null; synced?: boolean; source?: string }): void {
   const pId = detail?.participant?.id;
   const now = Date.now();
@@ -1861,11 +1871,12 @@ export function toggleAttendance(id: string): { participant: Participant | null;
 
   saveParticipants(updated);
 
+  const source = getClientDeviceSource(true);
   if (updatedParticipant) {
     window.dispatchEvent(new CustomEvent('participant-updated', { detail: updatedParticipant }));
     window.dispatchEvent(new CustomEvent('attendance-updated', { detail: updatedParticipant }));
     if (newAttended) {
-      notifyAttendanceConfirmed({ participant: updatedParticipant, timestamp: now, synced: true });
+      notifyAttendanceConfirmed({ participant: updatedParticipant, timestamp: now, synced: true, source });
     } else {
       notifyAttendanceAbsent({ participant: updatedParticipant, timestamp: now, synced: true });
     }
@@ -1875,6 +1886,7 @@ export function toggleAttendance(id: string): { participant: Participant | null;
     attended: newAttended,
     attendedAt: newAttended ? now : null,
     attendanceUpdatedAt: now,
+    source,
   };
 
   // Sincroniza com o servidor central local com payload atômico
@@ -2150,12 +2162,13 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
     saveParticipants(updated);
 
     // Dispara eventos locais imediatos para atualizar todas as telas locais
+    const clientSource = getClientDeviceSource(false);
     window.dispatchEvent(new CustomEvent('participant-updated', { detail: confirmedParticipant }));
     notifyAttendanceConfirmed({
       participant: confirmedParticipant,
       timestamp: now,
       synced: true,
-      source: 'mobile_qr',
+      source: clientSource,
     });
 
     // Enfileira para garantia offline de envio a todos os computadores e celulares
@@ -2178,6 +2191,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
         attendedAt: now,
         attendanceUpdatedAt: now,
         participant: confirmedParticipant,
+        source: clientSource,
       }),
       keepalive: true,
     })
@@ -2256,12 +2270,13 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
       attendanceUpdatedAt: now,
     });
 
+    const clientSource = getClientDeviceSource(false);
     window.dispatchEvent(new CustomEvent('participant-updated', { detail: recoveredParticipant }));
     notifyAttendanceConfirmed({
       participant: recoveredParticipant,
       timestamp: now,
       synced: true,
-      source: 'mobile_qr',
+      source: clientSource,
     });
 
     // Envia ao servidor para persistência e broadcast se houver conexão
@@ -2275,6 +2290,7 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
         attendedAt: now,
         attendanceUpdatedAt: now,
         participant: recoveredParticipant,
+        source: clientSource,
       }),
       keepalive: true,
     })
@@ -2314,10 +2330,11 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
 
   // 2. Consulta o servidor central diretamente via API de presença
   try {
+    const clientSource = getClientDeviceSource(false);
     const res = await fetch('/api/participants/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ codeOrMatricula: cleanInput }),
+      body: JSON.stringify({ codeOrMatricula: cleanInput, source: clientSource }),
     });
 
     if (res.ok) {
@@ -2332,11 +2349,12 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
 
         window.dispatchEvent(new CustomEvent('participant-updated', { detail: data.participant }));
         if (data.participant.attended) {
-          window.dispatchEvent(
-            new CustomEvent('attendance-confirmed', {
-              detail: { participant: data.participant, timestamp: data.participant.attendedAt, synced: true },
-            })
-          );
+          notifyAttendanceConfirmed({
+            participant: data.participant,
+            timestamp: data.participant.attendedAt,
+            synced: true,
+            source: data.source || clientSource,
+          });
         }
 
         // Replicar para as demais nuvens
@@ -2393,11 +2411,12 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
 
             window.dispatchEvent(new CustomEvent('participant-updated', { detail: cloudData.participant }));
             if (cloudData.participant.attended) {
-              window.dispatchEvent(
-                new CustomEvent('attendance-confirmed', {
-                  detail: { participant: cloudData.participant, timestamp: cloudData.participant.attendedAt, synced: true },
-                })
-              );
+              notifyAttendanceConfirmed({
+                participant: cloudData.participant,
+                timestamp: cloudData.participant.attendedAt,
+                synced: true,
+                source: cloudData.source || 'remote_sync',
+              });
             }
 
             return {
@@ -2754,20 +2773,6 @@ export function initMultiDeviceSync(): () => void {
             saveParticipants(updated);
             window.dispatchEvent(new CustomEvent('participant-updated', { detail: data }));
             window.dispatchEvent(new Event('participants-updated'));
-            if (data.attended) {
-              notifyAttendanceConfirmed({
-                participant: data,
-                timestamp: data.attendedAt,
-                synced: true,
-                source: 'mobile_qr',
-              });
-            } else {
-              notifyAttendanceAbsent({
-                participant: data,
-                timestamp: data.attendanceUpdatedAt || new Date().toISOString(),
-                synced: true,
-              });
-            }
           } else if (type === 'attendance_confirmed' && data) {
             if (data.participant) {
               const deleted = getDeletedParticipantIds();
@@ -2783,7 +2788,7 @@ export function initMultiDeviceSync(): () => void {
                 participant: pData,
                 timestamp: data.timestamp || pData.attendedAt,
                 synced: true,
-                source: 'mobile_qr',
+                source: data.source || pData.source || 'mobile_qr',
               });
               window.dispatchEvent(new Event('participants-updated'));
             }
@@ -2838,17 +2843,18 @@ export function initMultiDeviceSync(): () => void {
 
             if (typeof data.attended === 'boolean') {
               if (data.attended) {
-                window.dispatchEvent(
-                  new CustomEvent('attendance-confirmed', {
-                    detail: { participant: data, timestamp: data.attendedAt || new Date().toISOString(), synced: true },
-                  })
-                );
+                notifyAttendanceConfirmed({
+                  participant: data,
+                  timestamp: data.attendedAt || new Date().toISOString(),
+                  synced: true,
+                  source: data.source || 'remote_sync',
+                });
               } else {
-                window.dispatchEvent(
-                  new CustomEvent('attendance-absent', {
-                    detail: { participant: data, timestamp: data.attendanceUpdatedAt || new Date().toISOString(), synced: true },
-                  })
-                );
+                notifyAttendanceAbsent({
+                  participant: data,
+                  timestamp: data.attendanceUpdatedAt || new Date().toISOString(),
+                  synced: true,
+                });
               }
             }
           } else if (type === 'participant_deleted' && data) {

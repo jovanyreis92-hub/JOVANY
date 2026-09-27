@@ -731,10 +731,13 @@ async function startServer() {
     persistParticipantsToDisk(participants);
     broadcastSSE('participant_updated', participant);
     broadcastSSE('attendance_updated', participant);
+    const userAgent = String(req.headers['user-agent'] || '');
+    const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
+    const toggleSource = req.body?.source || (isMobileClient ? 'mobile_toggle' : 'pc_toggle');
     if (participant.attended) {
-      broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt, serverTime: now });
+      broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt, serverTime: now, source: toggleSource });
     } else {
-      broadcastSSE('attendance_absent', { participant, timestamp: now, serverTime: now });
+      broadcastSSE('attendance_absent', { participant, timestamp: now, serverTime: now, source: toggleSource });
     }
 
     const isPeerSync = req.headers['x-peer-sync'] === 'true';
@@ -998,11 +1001,15 @@ async function startServer() {
     participant.attendanceUpdatedAt = attendanceUpdatedAt || now;
 
     persistParticipantsToDisk(participants);
-    broadcastSSE('attendance_updated', participant);
+    const userAgent = String(req.headers['user-agent'] || '');
+    const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
+    const scanSource = req.body?.source || (isMobileClient ? 'mobile_qr' : 'pc_qr');
+    const participantWithSource = { ...participant, source: scanSource };
+    broadcastSSE('attendance_updated', participantWithSource);
     if (participant.attended) {
-      broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt, serverTime: now });
+      broadcastSSE('attendance_confirmed', { participant: participantWithSource, timestamp: participant.attendedAt, serverTime: now, source: scanSource });
     } else {
-      broadcastSSE('attendance_absent', { participant, timestamp: now, serverTime: now });
+      broadcastSSE('attendance_absent', { participant: participantWithSource, timestamp: now, serverTime: now, source: scanSource });
     }
 
     // Replicar imediatamente para nós peer da nuvem

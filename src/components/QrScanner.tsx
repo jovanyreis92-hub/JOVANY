@@ -93,6 +93,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
     company: string;
     time: string;
     status: 'success' | 'already_checked';
+    source?: string;
   }>>([]);
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -176,6 +177,40 @@ export const QrScanner: React.FC<QrScannerProps> = ({
       window.removeEventListener('attendance-confirmed', updateQueue);
       window.removeEventListener('attendance-absent', updateQueue);
     };
+  }, []);
+
+  // Sincronização simultânea: atualiza lista de check-ins no leitor quando outro aparelho (celular ou PC) confirma presença
+  useEffect(() => {
+    const handleRemoteConfirmed = (e: Event) => {
+      const custom = e as CustomEvent<{ participant?: Participant; timestamp?: string; source?: string }>;
+      if (custom.detail?.participant) {
+        const p = custom.detail.participant;
+        const timeStr = custom.detail.timestamp
+          ? new Date(custom.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        setRecentCheckins((prev) => {
+          if (prev.length > 0 && prev[0].id === p.id && prev[0].status === 'success') {
+            return prev;
+          }
+          return [
+            {
+              id: p.id,
+              fullName: p.fullName,
+              registrationNumber: p.registrationNumber,
+              company: p.company || 'Não informada',
+              time: timeStr,
+              status: 'success',
+              source: custom.detail.source || 'remote_qr',
+            },
+            ...prev.filter((item) => item.id !== p.id).slice(0, 4),
+          ];
+        });
+      }
+    };
+
+    window.addEventListener('attendance-confirmed', handleRemoteConfirmed);
+    return () => window.removeEventListener('attendance-confirmed', handleRemoteConfirmed);
   }, []);
 
   const handleManualFlush = async () => {
@@ -282,6 +317,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
         }
 
         setSessionCheckinCount((prev) => prev + 1);
+        const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad/i.test(navigator.userAgent || '');
         setRecentCheckins((prev) => [
           {
             id: result.participant!.id,
@@ -290,6 +326,7 @@ export const QrScanner: React.FC<QrScannerProps> = ({
             company: result.participant!.company,
             time: timeStr,
             status: 'success',
+            source: isMobile ? 'mobile_qr' : 'pc_qr',
           },
           ...prev.slice(0, 4),
         ]);
@@ -1148,9 +1185,20 @@ export const QrScanner: React.FC<QrScannerProps> = ({
                         <p className="text-[11px] text-slate-500 font-mono">Matrícula: {item.registrationNumber} • {item.company}</p>
                       </div>
                     </div>
-                    <span className="text-[11px] font-mono text-emerald-700 font-medium shrink-0 ml-2">
-                      {item.time}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {item.source === 'mobile_qr' || item.source === 'mobile_toggle' ? (
+                        <span className="text-[10px] font-semibold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">
+                          📱 Celular
+                        </span>
+                      ) : item.source === 'pc_qr' || item.source === 'pc_toggle' ? (
+                        <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                          💻 PC
+                        </span>
+                      ) : null}
+                      <span className="text-[11px] font-mono text-emerald-700 font-medium">
+                        {item.time}
+                      </span>
+                    </div>
                   </button>
                 ))}
               </div>
