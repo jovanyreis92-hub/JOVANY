@@ -1,11 +1,26 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
+
+// Detecta endereços IP da máquina na rede local (Wi-Fi e Ethernet) para sincronização multi-dispositivo
+function getLocalIpAddresses(): string[] {
+  const interfaces = os.networkInterfaces();
+  const addresses: string[] = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] || []) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        addresses.push(iface.address);
+      }
+    }
+  }
+  return addresses;
+}
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const PARTICIPANTS_FILE = path.join(DATA_DIR, 'participants.json');
@@ -78,6 +93,112 @@ function isValidParticipant(p: any): boolean {
   return true;
 }
 
+// Função de reconciliação não-destrutiva: NUNCA altera ou reverte informações já atualizadas no sistema
+function reconcileParticipants(existing: any, incoming: any): { merged: any; modified: boolean } {
+  if (!existing) return { merged: incoming, modified: true };
+  if (!incoming) return { merged: existing, modified: false };
+
+  let modified = false;
+  const merged = { ...existing };
+
+  // 1. Reconciliação dos campos cadastrais (Nome, Matrícula, Empresa, Evento)
+  const existingUpdateTime = existing.updatedAt 
+    ? new Date(existing.updatedAt).getTime() 
+    : (existing.createdAt ? new Date(existing.createdAt).getTime() : 0);
+
+  const incomingUpdateTime = incoming.updatedAt 
+    ? new Date(incoming.updatedAt).getTime() 
+    : (incoming.createdAt ? new Date(incoming.createdAt).getTime() : 0);
+
+  if (incomingUpdateTime > existingUpdateTime) {
+    // Incoming é estritamente mais recente (edição legítima mais recente feita em outro dispositivo)
+    if (incoming.fullName && incoming.fullName !== existing.fullName) {
+      merged.fullName = incoming.fullName;
+      modified = true;
+    }
+    if (incoming.registrationNumber && incoming.registrationNumber !== existing.registrationNumber) {
+      merged.registrationNumber = incoming.registrationNumber;
+      modified = true;
+    }
+    if (incoming.company && incoming.company !== existing.company) {
+      merged.company = incoming.company;
+      modified = true;
+    }
+    if (incoming.eventId && incoming.eventId !== existing.eventId) {
+      merged.eventId = incoming.eventId;
+      modified = true;
+    }
+    if (incoming.eventName && incoming.eventName !== existing.eventName) {
+      merged.eventName = incoming.eventName;
+      modified = true;
+    }
+    merged.updatedAt = incoming.updatedAt || new Date().toISOString();
+  } else {
+    // Existing é mais recente ou igual: PRESERVA RIGOROSAMENTE AS INFORMAÇÕES JÁ ATUALIZADAS NO SISTEMA!
+    if ((!merged.company || merged.company === 'Não informada') && incoming.company && incoming.company !== 'Não informada') {
+      merged.company = incoming.company;
+      modified = true;
+    }
+    if (!merged.registrationNumber && incoming.registrationNumber) {
+      merged.registrationNumber = incoming.registrationNumber;
+      modified = true;
+    }
+    if (!merged.fullName && incoming.fullName) {
+      merged.fullName = incoming.fullName;
+      modified = true;
+    }
+  }
+
+  // 2. Reconciliação do Status de Presença (Presente / Ausente)
+  const existingAttTime = existing.attendanceUpdatedAt 
+    ? new Date(existing.attendanceUpdatedAt).getTime() 
+    : (existing.attendedAt ? new Date(existing.attendedAt).getTime() : 0);
+
+  const incomingAttTime = incoming.attendanceUpdatedAt 
+    ? new Date(incoming.attendanceUpdatedAt).getTime() 
+    : (incoming.attendedAt ? new Date(incoming.attendedAt).getTime() : 0);
+
+  if (typeof incoming.attended === 'boolean') {
+    if (existing.attended && !incoming.attended) {
+      // REGRA DE PROTEÇÃO: Presença já confirmada no sistema (PRESENTE)
+      // NUNCA pode ser revertida para AUSENTE por dados de cache desatualizados ou sem timestamp posterior!
+      if (incoming.attendanceUpdatedAt && incomingAttTime > existingAttTime) {
+        merged.attended = false;
+        merged.attendedAt = null;
+        merged.attendanceUpdatedAt = incoming.attendanceUpdatedAt;
+        modified = true;
+      } else {
+        // Preserva o status PRESENTE já atualizado no sistema!
+        merged.attended = true;
+        merged.attendedAt = existing.attendedAt || incoming.attendedAt || new Date().toISOString();
+        if (!merged.attendanceUpdatedAt) {
+          merged.attendanceUpdatedAt = merged.attendedAt;
+        }
+      }
+    } else if (!existing.attended && incoming.attended) {
+      if (incomingAttTime >= existingAttTime || !existing.attendanceUpdatedAt) {
+        merged.attended = true;
+        merged.attendedAt = incoming.attendedAt || new Date().toISOString();
+        merged.attendanceUpdatedAt = incoming.attendanceUpdatedAt || merged.attendedAt;
+        modified = true;
+      }
+    } else if (existing.attended && incoming.attended) {
+      // Ambos presentes: preserva o horário da primeira confirmação (mais antigo)
+      const existingAtTime = existing.attendedAt ? new Date(existing.attendedAt).getTime() : Infinity;
+      const incomingAtTime = incoming.attendedAt ? new Date(incoming.attendedAt).getTime() : Infinity;
+      if (incomingAtTime < existingAtTime) {
+        merged.attendedAt = incoming.attendedAt;
+        modified = true;
+      }
+      if (incomingAttTime > existingAttTime) {
+        merged.attendanceUpdatedAt = incoming.attendanceUpdatedAt;
+      }
+    }
+  }
+
+  return { merged, modified };
+}
+
 // Salva participantes de forma atômica no arquivo principal e no backup de redundância (filtrando deletados e inválidos)
 function persistParticipantsToDisk(parts: any[]): void {
   const filtered = parts.filter(isValidParticipant);
@@ -98,15 +219,8 @@ const mergedMap = new Map<string, any>();
   if (!existing) {
     mergedMap.set(key, p);
   } else {
-    // Se o registro existente ou o novo tiver presença confirmada, preserva a presença
-    const attended = Boolean(existing.attended || p.attended);
-    const attendedAt = existing.attendedAt || p.attendedAt || (attended ? new Date().toISOString() : null);
-    mergedMap.set(key, {
-      ...existing,
-      ...p,
-      attended,
-      attendedAt,
-    });
+    const { merged } = reconcileParticipants(existing, p);
+    mergedMap.set(key, merged);
   }
 });
 
@@ -304,25 +418,44 @@ async function startServer() {
   app.use('/api', express.json({ limit: '20mb' }));
   app.use('/api', express.urlencoded({ extended: true, limit: '20mb' }));
 
-  // SSE Keepalive a cada 15 segundos para evitar fechamento de conexões móveis (4G/5G)
+  // SSE Keepalive a cada 10 segundos para manter conexões móveis (3G/4G/5G) ativas e estáveis
   const heartbeat = setInterval(() => {
-    sseClients.forEach((client) => {
+    const pingPayload = `event: ping\ndata: ${JSON.stringify({ type: 'ping', timestamp: Date.now() })}\n\n`;
+    sseClients = sseClients.filter((client) => {
       try {
         client.res.write(': keepalive\n\n');
+        client.res.write(pingPayload);
+        if (typeof (client.res as any).flush === 'function') {
+          (client.res as any).flush();
+        }
+        return true;
       } catch {
         // fechado
       }
     });
-  }, 15000);
+  }, 10000);
   heartbeat.unref();
 
-  // 1. Health check
+  // 1. Health check e Informações de Rede Local (para conexão de computadores e celulares na mesma rede)
   app.get('/api/health', (_req, res) => {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
       participantsCount: participants.length,
       connectedClients: sseClients.length,
+      localIps: getLocalIpAddresses(),
+      port: PORT,
+    });
+  });
+
+  app.get('/api/network-info', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.json({
+      localIps: getLocalIpAddresses(),
+      port: PORT,
+      connectedClients: sseClients.length,
+      participantsCount: participants.length,
+      timestamp: new Date().toISOString(),
     });
   });
 
@@ -370,20 +503,17 @@ async function startServer() {
           (p.eventId || 'event_1') === targetEventId
       );
       if (existingSameMatricula) {
-        // Se for o mesmo participante (mesmo id ou mesmo nome), atualiza os dados e retorna sucesso idempotente
+        // Se for o mesmo participante (mesmo id ou mesmo nome), preserva dados já atualizados e reconcilia
         if (
           (data.id && existingSameMatricula.id === data.id) ||
           (existingSameMatricula.fullName || '').trim().toLowerCase() === (trimmedName || '').toLowerCase()
         ) {
-          if (data.company && (!existingSameMatricula.company || existingSameMatricula.company === 'Não informada')) {
-            existingSameMatricula.company = String(data.company).trim();
+          const { merged, modified } = reconcileParticipants(existingSameMatricula, data);
+          if (modified) {
+            Object.assign(existingSameMatricula, merged);
+            persistParticipantsToDisk(participants);
+            broadcastSSE('participant_updated', existingSameMatricula);
           }
-          if (data.attended && !existingSameMatricula.attended) {
-            existingSameMatricula.attended = true;
-            existingSameMatricula.attendedAt = data.attendedAt || new Date().toISOString();
-          }
-          persistParticipantsToDisk(participants);
-          broadcastSSE('participant_updated', existingSameMatricula);
           return res.status(200).json({ success: true, participant: existingSameMatricula, merged: true });
         }
         return res.status(409).json({
@@ -402,15 +532,12 @@ async function startServer() {
           (data.id && existingSameName.id === data.id) ||
           existingSameName.registrationNumber === trimmedMatricula
         ) {
-          if (data.company && (!existingSameName.company || existingSameName.company === 'Não informada')) {
-            existingSameName.company = String(data.company).trim();
+          const { merged, modified } = reconcileParticipants(existingSameName, data);
+          if (modified) {
+            Object.assign(existingSameName, merged);
+            persistParticipantsToDisk(participants);
+            broadcastSSE('participant_updated', existingSameName);
           }
-          if (data.attended && !existingSameName.attended) {
-            existingSameName.attended = true;
-            existingSameName.attendedAt = data.attendedAt || new Date().toISOString();
-          }
-          persistParticipantsToDisk(participants);
-          broadcastSSE('participant_updated', existingSameName);
           return res.status(200).json({ success: true, participant: existingSameName, merged: true });
         }
         return res.status(409).json({
@@ -418,6 +545,7 @@ async function startServer() {
         });
       }
 
+      const now = new Date().toISOString();
       const newParticipant = {
         id: data.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         fullName: trimmedName,
@@ -425,9 +553,11 @@ async function startServer() {
         company: data.company ? String(data.company).trim() : 'Não informada',
         eventId: targetEventId,
         eventName: data.eventName || companySettings.eventName || 'COZINHA SHOW',
-        createdAt: data.createdAt || new Date().toISOString(),
+        createdAt: data.createdAt || now,
+        updatedAt: data.updatedAt || data.createdAt || now,
         attended: Boolean(data.attended),
-        attendedAt: data.attendedAt || null,
+        attendedAt: data.attended ? (data.attendedAt || now) : null,
+        attendanceUpdatedAt: data.attendanceUpdatedAt || (data.attended ? (data.attendedAt || now) : now),
       };
 
       participants = [newParticipant, ...participants.filter((p) => p.id !== newParticipant.id && !deletedParticipantIds.has(p.id))];
@@ -475,57 +605,21 @@ async function startServer() {
         );
 
         if (index === -1) {
-          participants.unshift(item);
+          const now = new Date().toISOString();
+          const cleanItem = {
+            ...item,
+            createdAt: item.createdAt || now,
+            updatedAt: item.updatedAt || item.createdAt || now,
+            attendanceUpdatedAt: item.attendanceUpdatedAt || (item.attended ? (item.attendedAt || now) : now),
+          };
+          participants.unshift(cleanItem);
           addedCount++;
           modified = true;
         } else {
-          const current = participants[index];
-          let updatedItem = false;
-
-          // Sincronização inteligente de status de presença (Presente e Ausente) com resolução por timestamp
-          if (typeof item.attended === 'boolean') {
-            const itemTime = item.attendanceUpdatedAt
-              ? new Date(item.attendanceUpdatedAt).getTime()
-              : item.attendedAt
-              ? new Date(item.attendedAt).getTime()
-              : 0;
-            const currentTime = current.attendanceUpdatedAt
-              ? new Date(current.attendanceUpdatedAt).getTime()
-              : current.attendedAt
-              ? new Date(current.attendedAt).getTime()
-              : 0;
-
-            if (itemTime > currentTime || (itemTime === currentTime && item.attended !== current.attended && item.attendanceUpdatedAt)) {
-              current.attended = item.attended;
-              current.attendedAt = item.attended ? (item.attendedAt || new Date().toISOString()) : null;
-              current.attendanceUpdatedAt = item.attendanceUpdatedAt || new Date().toISOString();
-              updatedItem = true;
-            } else if (!current.attendanceUpdatedAt && item.attendanceUpdatedAt) {
-              current.attended = item.attended;
-              current.attendedAt = item.attended ? (item.attendedAt || new Date().toISOString()) : null;
-              current.attendanceUpdatedAt = item.attendanceUpdatedAt;
-              updatedItem = true;
-            } else if (item.attended && !current.attended && !current.attendanceUpdatedAt) {
-              current.attended = true;
-              current.attendedAt = item.attendedAt || new Date().toISOString();
-              current.attendanceUpdatedAt = current.attendedAt;
-              updatedItem = true;
-            }
-          }
-
-          if (item.company && current.company !== item.company) {
-            current.company = item.company;
-            updatedItem = true;
-          }
-          if (item.fullName && current.fullName !== item.fullName) {
-            current.fullName = item.fullName;
-            updatedItem = true;
-          }
-          if (item.registrationNumber && current.registrationNumber !== item.registrationNumber) {
-            current.registrationNumber = item.registrationNumber;
-            updatedItem = true;
-          }
-          if (updatedItem) {
+          // Reconciliação não-destrutiva: NUNCA altera ou reverte informações já atualizadas no sistema!
+          const { merged, modified: itemModified } = reconcileParticipants(participants[index], item);
+          if (itemModified) {
+            participants[index] = merged;
             modified = true;
           }
         }
@@ -566,6 +660,7 @@ async function startServer() {
         ...req.body,
         id,
         createdAt: req.body.createdAt || now,
+        updatedAt: req.body.updatedAt || now,
         attended: req.body.attended !== undefined ? Boolean(req.body.attended) : false,
         attendedAt: req.body.attended ? (req.body.attendedAt || now) : null,
         attendanceUpdatedAt: req.body.attendanceUpdatedAt || now,
@@ -582,6 +677,7 @@ async function startServer() {
         ...prev,
         ...req.body,
         id,
+        updatedAt: req.body.updatedAt || now,
         attended: newAttended,
         attendedAt: newAttended ? (req.body.attendedAt || prev.attendedAt || now) : null,
         attendanceUpdatedAt: req.body.attendanceUpdatedAt || (attendedChanged ? now : prev.attendanceUpdatedAt || now),

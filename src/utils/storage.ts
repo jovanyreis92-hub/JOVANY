@@ -950,7 +950,44 @@ export function mergeParticipantLists(
       let attendedAt = existing.attendedAt;
       let attendanceUpdatedAt = existing.attendanceUpdatedAt;
 
-      // Resolução inteligente por timestamp para sincronizar PRESENTE e AUSENTE entre celulares e computadores
+      // Resolução não-destrutiva de campos cadastrais (Nome, Matrícula, Empresa, Evento)
+      // REGRA: SEM ALTERAR INFORMAÇÕES JÁ ATUALIZADAS NO SISTEMA!
+      const existingUpdateTime = existing.updatedAt
+        ? new Date(existing.updatedAt).getTime()
+        : (existing.createdAt ? new Date(existing.createdAt).getTime() : 0);
+      const incomingUpdateTime = incoming.updatedAt
+        ? new Date(incoming.updatedAt).getTime()
+        : (incoming.createdAt ? new Date(incoming.createdAt).getTime() : 0);
+
+      let fullName = existing.fullName;
+      let registrationNumber = existing.registrationNumber;
+      let company = existing.company;
+      let eventName = existing.eventName;
+      let eventId = existing.eventId;
+      let updatedAt = existing.updatedAt;
+
+      if (incomingUpdateTime > existingUpdateTime) {
+        // Incoming foi explicitamente atualizado mais recentemente em outro aparelho
+        if (incoming.fullName) fullName = incoming.fullName;
+        if (incoming.registrationNumber) registrationNumber = incoming.registrationNumber;
+        if (incoming.company) company = incoming.company;
+        if (incoming.eventName) eventName = incoming.eventName;
+        if (incoming.eventId) eventId = incoming.eventId;
+        updatedAt = incoming.updatedAt || new Date().toISOString();
+      } else {
+        // Existing é mais recente ou igual: PRESERVA RIGOROSAMENTE AS INFORMAÇÕES JÁ ATUALIZADAS NO SISTEMA!
+        if ((!company || company === 'Não informada') && incoming.company && incoming.company !== 'Não informada') {
+          company = incoming.company;
+        }
+        if (!registrationNumber && incoming.registrationNumber) {
+          registrationNumber = incoming.registrationNumber;
+        }
+        if (!fullName && incoming.fullName) {
+          fullName = incoming.fullName;
+        }
+      }
+
+      // Resolução inteligente e protegida de status de presença (Presente e Ausente)
       if (typeof incoming.attended === 'boolean') {
         const incomingTime = incoming.attendanceUpdatedAt
           ? new Date(incoming.attendanceUpdatedAt).getTime()
@@ -963,32 +1000,39 @@ export function mergeParticipantLists(
           ? new Date(existing.attendedAt).getTime()
           : 0;
 
-        if (incomingTime > existingTime || (incomingTime === existingTime && incoming.attendanceUpdatedAt && incoming.attended !== existing.attended)) {
-          if (attended !== incoming.attended) {
+        if (existing.attended && !incoming.attended) {
+          // REGRA DE PROTEÇÃO: Presença já confirmada no sistema (PRESENTE)
+          // NUNCA pode ser revertida para AUSENTE por dados obsoletos ou pacotes sem timestamp posterior!
+          if (incoming.attendanceUpdatedAt && incomingTime > existingTime) {
+            attended = false;
+            attendedAt = null;
+            attendanceUpdatedAt = incoming.attendanceUpdatedAt;
+            hasAttendanceChanges = true;
+          } else {
+            // Preserva status PRESENTE já atualizado no sistema!
+            attended = true;
+            attendedAt = existing.attendedAt || incoming.attendedAt || new Date().toISOString();
+            attendanceUpdatedAt = existing.attendanceUpdatedAt || attendedAt;
+          }
+        } else if (!existing.attended && incoming.attended) {
+          if (incomingTime >= existingTime || !existing.attendanceUpdatedAt) {
+            attended = true;
+            attendedAt = incoming.attendedAt || new Date().toISOString();
+            attendanceUpdatedAt = incoming.attendanceUpdatedAt || attendedAt;
             hasAttendanceChanges = true;
           }
-          attended = incoming.attended;
-          attendedAt = incoming.attended ? (incoming.attendedAt || new Date().toISOString()) : null;
-          attendanceUpdatedAt = incoming.attendanceUpdatedAt || new Date().toISOString();
-        } else if (!existing.attendanceUpdatedAt && incoming.attendanceUpdatedAt) {
-          if (attended !== incoming.attended) {
-            hasAttendanceChanges = true;
+        } else if (existing.attended && incoming.attended) {
+          // Ambos confirmados: preserva o horário do primeiro registro
+          const existingAtTime = existing.attendedAt ? new Date(existing.attendedAt).getTime() : Infinity;
+          const incomingAtTime = incoming.attendedAt ? new Date(incoming.attendedAt).getTime() : Infinity;
+          if (incomingAtTime < existingAtTime) {
+            attendedAt = incoming.attendedAt;
           }
-          attended = incoming.attended;
-          attendedAt = incoming.attended ? (incoming.attendedAt || new Date().toISOString()) : null;
-          attendanceUpdatedAt = incoming.attendanceUpdatedAt;
-        } else if (incoming.attended && !existing.attended && !existing.attendanceUpdatedAt) {
-          attended = true;
-          attendedAt = incoming.attendedAt || new Date().toISOString();
-          attendanceUpdatedAt = attendedAt;
-          hasAttendanceChanges = true;
+          if (incomingTime > existingTime) {
+            attendanceUpdatedAt = incoming.attendanceUpdatedAt;
+          }
         }
       }
-
-      const company = incoming.company || existing.company;
-      const eventName = incoming.eventName || existing.eventName;
-      const fullName = incoming.fullName || existing.fullName;
-      const registrationNumber = incoming.registrationNumber || existing.registrationNumber;
 
       map.set(key, {
         ...existing,
@@ -997,7 +1041,9 @@ export function mergeParticipantLists(
         fullName,
         registrationNumber,
         company,
+        eventId,
         eventName,
+        updatedAt,
         attended,
         attendedAt,
         attendanceUpdatedAt,
@@ -1100,6 +1146,14 @@ export function getStoredParticipants(): Participant[] {
   }
 }
 
+// Canal BroadcastChannel para sincronização instantânea (< 5ms) entre abas e janelas no mesmo aparelho/computador
+let localBroadcastChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  try {
+    localBroadcastChannel = new BroadcastChannel('qr_multidevice_realtime_channel');
+  } catch {}
+}
+
 export function saveParticipants(participants: Participant[], broadcastLocal = true): void {
   try {
     const deletedIds = getDeletedParticipantIds();
@@ -1118,6 +1172,11 @@ export function saveParticipants(participants: Participant[], broadcastLocal = t
 
     if (broadcastLocal) {
       window.dispatchEvent(new Event('participants-updated'));
+      if (localBroadcastChannel) {
+        try {
+          localBroadcastChannel.postMessage({ type: 'participants_updated', timestamp: Date.now() });
+        } catch {}
+      }
     }
   } catch (err) {
     console.error('Erro ao salvar participantes no cache:', err);
@@ -1323,6 +1382,7 @@ export async function addParticipant(
     };
   }
 
+  const now = new Date().toISOString();
   const newParticipant: Participant = {
     id: `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     fullName: trimmedName,
@@ -1330,9 +1390,11 @@ export async function addParticipant(
     company: trimmedCompany || 'Não informada',
     eventId: targetEventId,
     eventName: targetEventName,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
     attended: false,
     attendedAt: null,
+    attendanceUpdatedAt: now,
   };
 
   try {
@@ -1353,6 +1415,8 @@ export async function addParticipant(
         eventId: targetEventId,
         eventName: targetEventName,
         createdAt: newParticipant.createdAt,
+        updatedAt: now,
+        attendanceUpdatedAt: now,
         adminAuth: true,
       }),
     });
@@ -1493,6 +1557,7 @@ export async function updateParticipant(
     company: trimmedCompany || 'Não informada',
     eventId: targetEventId,
     eventName: targetEventName,
+    updatedAt: now,
     attended: newAttended,
     attendedAt: newAttendedAt,
     attendanceUpdatedAt: now,
@@ -1529,6 +1594,7 @@ export async function updateParticipant(
     company: trimmedCompany,
     eventId: targetEventId,
     eventName: targetEventName,
+    updatedAt: now,
     attended: newAttended,
     attendedAt: newAttendedAt,
     attendanceUpdatedAt: now,
@@ -2561,10 +2627,19 @@ export function initMultiDeviceSync(): () => void {
   }
   isInitialized = true;
 
+  // Escuta canal local para sincronizar abas do mesmo aparelho instantaneamente (< 5ms)
+  if (localBroadcastChannel) {
+    localBroadcastChannel.onmessage = (event) => {
+      if (event.data?.type === 'participants_updated') {
+        window.dispatchEvent(new Event('participants-updated'));
+      }
+    };
+  }
+
   // 1. Sincroniza imediatamente ao abrir a página
   syncWithServer();
 
-  // 2. Conecta ao SSE (/api/events) para receber cadastros, presenças e exclusões em tempo real (< 100ms)
+  // 2. Conecta ao SSE (/api/events) para receber cadastros, presenças e exclusões em tempo real (< 50ms)
   let eventSource: EventSource | null = null;
   let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -2575,6 +2650,10 @@ export function initMultiDeviceSync(): () => void {
       eventSource.onopen = () => {
         setSyncStatus('connected');
       };
+
+      eventSource.addEventListener('ping', () => {
+        setSyncStatus('connected');
+      });
 
       eventSource.onmessage = (e) => {
         try {
@@ -2755,12 +2834,12 @@ export function initMultiDeviceSync(): () => void {
           eventSource.close();
           eventSource = null;
         }
-        // Reconexão automática em 4 segundos
+        // Reconexão ultra-rápida (1.2s) para não perder eventos em alternâncias de rede (Wi-Fi, 4G, 5G)
         if (!reconnectTimeout) {
           reconnectTimeout = setTimeout(() => {
             reconnectTimeout = null;
             connectSSE();
-          }, 4000);
+          }, 1200);
         }
       };
     } catch {
@@ -2770,7 +2849,7 @@ export function initMultiDeviceSync(): () => void {
 
   connectSSE();
 
-  // 3. Heartbeat Polling a cada 3 segundos com anti-cache para celulares 4G/5G
+  // 3. Heartbeat Polling resiliente a cada 2.5 segundos com anti-cache para celulares e computadores
   let pollCycleCount = 0;
   const pollInterval = setInterval(() => {
     pollCycleCount++;

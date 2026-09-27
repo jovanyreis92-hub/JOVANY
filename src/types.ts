@@ -18,6 +18,7 @@ export interface Participant {
   eventId?: string;          // ID do evento associado
   eventName?: string;        // Nome do evento associado
   createdAt: string;         // Data/hora de cadastro ISO
+  updatedAt?: string | null; // Data/hora da última alteração de dados cadastrais
   attended: boolean;         // Presença confirmada?
   attendedAt?: string | null; // Data/hora da confirmação
   attendanceUpdatedAt?: string | null; // Data/hora da última alteração de status (Presente ou Ausente)

@@ -35,6 +35,7 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
   const [isEditingUrl, setIsEditingUrl] = useState<boolean>(false);
   const [customInputUrl, setCustomInputUrl] = useState<string>('');
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const [localIps, setLocalIps] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -44,6 +45,16 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
     setCustomInputUrl(resolved.url);
 
     generateQr(resolved.url);
+
+    // Consulta IPs da máquina para sincronização em redes locais (Wi-Fi)
+    fetch('/api/network-info')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.localIps && Array.isArray(data.localIps)) {
+          setLocalIps(data.localIps);
+        }
+      })
+      .catch(() => {});
 
     const handleSyncChange = (e: Event) => {
       const custom = e as CustomEvent<{ status: SyncStatus }>;
@@ -218,6 +229,54 @@ export const MobileShareModal: React.FC<MobileShareModalProps> = ({
               Abre instantaneamente em navegadores mobile (Chrome, Safari, Firefox) via 4G, 5G ou Wi-Fi.
             </p>
           </div>
+
+          {/* Opções de Rede (Internet Móvel 4G/5G ou Wi-Fi Local) */}
+          {localIps.length > 0 && (
+            <div className="bg-slate-50/80 p-2.5 rounded-2xl border border-slate-200/90 text-xs space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-600 block">
+                Rede de Conexão dos Celulares e Computadores:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const auto = resolvePublicRegistrationUrl(companySettings);
+                    setUrlInfo(auto);
+                    generateQr(auto.url);
+                  }}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all cursor-pointer ${
+                    !urlInfo.url.includes(localIps[0])
+                      ? 'bg-primary-theme text-white shadow-xs'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Internet / Celular (3G, 4G, 5G)
+                </button>
+                {localIps.map((ip) => {
+                  const localUrl = `http://${ip}:3000`;
+                  const isSelected = urlInfo.url.startsWith(localUrl);
+                  return (
+                    <button
+                      key={ip}
+                      type="button"
+                      onClick={() => {
+                        const custom = resolvePublicRegistrationUrl(companySettings, localUrl);
+                        setUrlInfo(custom);
+                        generateQr(custom.url);
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-primary-theme text-white shadow-xs'
+                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Wi-Fi Local ({ip})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Link direto para compartilhamento */}
           <div className="space-y-2">
