@@ -41,6 +41,7 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
   
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [liveSyncToast, setLiveSyncToast] = useState<string | null>(null);
 
   // Inicializa o formulário com os dados do participante selecionado
   useEffect(() => {
@@ -52,8 +53,47 @@ export const EditParticipantModal: React.FC<EditParticipantModalProps> = ({
       setAttended(Boolean(participant.attended));
       setErrorMessage(null);
       setIsSaving(false);
+      setLiveSyncToast(null);
     }
   }, [participant, isOpen, events]);
+
+  // Escuta confirmações e atualizações de presença em tempo real enquanto o modal está aberto
+  useEffect(() => {
+    if (!isOpen || !participant) return;
+
+    const handleAttendanceConfirmed = (e: Event) => {
+      const custom = e as CustomEvent<{ participant?: Participant; timestamp?: string; source?: string }>;
+      if (custom.detail?.participant) {
+        const p = custom.detail.participant;
+        if (p.id === participant.id || p.registrationNumber === participant.registrationNumber) {
+          setAttended(true);
+          const time = custom.detail.timestamp
+            ? new Date(custom.detail.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const isMobile = custom.detail.source === 'mobile_qr' || custom.detail.source === 'mobile_toggle';
+          setLiveSyncToast(`⚡ Presença confirmada simultaneamente via ${isMobile ? 'Leitor no Celular' : 'Computador/PC'} às ${time}!`);
+        }
+      }
+    };
+
+    const handleAttendanceAbsent = (e: Event) => {
+      const custom = e as CustomEvent<{ participant?: Participant }>;
+      if (custom.detail?.participant) {
+        const p = custom.detail.participant;
+        if (p.id === participant.id || p.registrationNumber === participant.registrationNumber) {
+          setAttended(false);
+          setLiveSyncToast('Status de presença atualizado para Ausente em rede.');
+        }
+      }
+    };
+
+    window.addEventListener('attendance-confirmed', handleAttendanceConfirmed);
+    window.addEventListener('attendance-absent', handleAttendanceAbsent);
+    return () => {
+      window.removeEventListener('attendance-confirmed', handleAttendanceConfirmed);
+      window.removeEventListener('attendance-absent', handleAttendanceAbsent);
+    };
+  }, [isOpen, participant]);
 
   // Tecla ESC fecha o modal
   useEffect(() => {

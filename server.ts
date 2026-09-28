@@ -688,11 +688,15 @@ async function startServer() {
       broadcastSSE('participant_updated', updated);
 
       if (attendedChanged) {
-        broadcastSSE('attendance_updated', updated);
+        const userAgent = String(req.headers['user-agent'] || '');
+        const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
+        const updateSource = req.body?.source || (isMobileClient ? 'mobile_toggle' : 'pc_toggle');
+        const updatedWithSource = { ...updated, source: updateSource };
+        broadcastSSE('attendance_updated', updatedWithSource);
         if (newAttended) {
-          broadcastSSE('attendance_confirmed', { participant: updated, timestamp: updated.attendedAt, serverTime: now });
+          broadcastSSE('attendance_confirmed', { participant: updatedWithSource, timestamp: updated.attendedAt, serverTime: now, source: updateSource });
         } else {
-          broadcastSSE('attendance_absent', { participant: updated, timestamp: now, serverTime: now });
+          broadcastSSE('attendance_absent', { participant: updatedWithSource, timestamp: now, serverTime: now, source: updateSource });
         }
       }
     }

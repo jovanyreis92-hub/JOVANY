@@ -255,6 +255,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const handleParticipantUpdated = (e: Event) => {
       const customEvent = e as CustomEvent<Participant>;
       if (customEvent.detail) {
+        const updated = customEvent.detail;
+        setSelectedParticipantForQr((prev) => (prev && (prev.id === updated.id || prev.registrationNumber === updated.registrationNumber) ? { ...prev, ...updated } : prev));
+        setParticipantToEdit((prev) => (prev && (prev.id === updated.id || prev.registrationNumber === updated.registrationNumber) ? { ...prev, ...updated } : prev));
         onUpdateParticipants();
       }
     };
@@ -263,6 +266,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const customEvent = e as CustomEvent<{ participant: Participant; timestamp?: string; source?: string }>;
       if (customEvent.detail?.participant) {
         const p = customEvent.detail.participant;
+        setSelectedParticipantForQr((prev) => (prev && (prev.id === p.id || prev.registrationNumber === p.registrationNumber) ? { ...prev, ...p, attended: true, attendedAt: p.attendedAt } : prev));
+        setParticipantToEdit((prev) => (prev && (prev.id === p.id || prev.registrationNumber === p.registrationNumber) ? { ...prev, ...p, attended: true, attendedAt: p.attendedAt } : prev));
+
         const nowMs = Date.now();
         if (lastConfirmedRef.current && lastConfirmedRef.current.id === p.id && nowMs - lastConfirmedRef.current.time < 1500) {
           onUpdateParticipants();
@@ -312,6 +318,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const customEvent = e as CustomEvent<{ participant: Participant; timestamp: string }>;
       if (customEvent.detail?.participant) {
         const p = customEvent.detail.participant;
+        setSelectedParticipantForQr((prev) => (prev && (prev.id === p.id || prev.registrationNumber === p.registrationNumber) ? { ...prev, ...p, attended: false, attendedAt: null } : prev));
+        setParticipantToEdit((prev) => (prev && (prev.id === p.id || prev.registrationNumber === p.registrationNumber) ? { ...prev, ...p, attended: false, attendedAt: null } : prev));
         showToast(
           `Status de "${p.fullName}" atualizado para AUSENTE (sincronizado em rede).`,
           'info'

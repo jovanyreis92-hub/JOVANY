@@ -1619,22 +1619,33 @@ export async function updateParticipant(
   saveParticipants(updatedList);
 
   // Dispara eventos locais para atualizar todas as abas e componentes imediatamente
+  const clientSource = getClientDeviceSource(true);
   window.dispatchEvent(new CustomEvent('participant-updated', { detail: updatedParticipant }));
   window.dispatchEvent(new Event('participants-updated'));
+  if (localBroadcastChannel) {
+    try {
+      localBroadcastChannel.postMessage({
+        type: 'participant_updated',
+        detail: updatedParticipant,
+        timestamp: Date.now(),
+      });
+    } catch {}
+  }
 
   if (attendedChanged) {
     if (newAttended) {
-      window.dispatchEvent(
-        new CustomEvent('attendance-confirmed', {
-          detail: { participant: updatedParticipant, timestamp: now, synced: true },
-        })
-      );
+      notifyAttendanceConfirmed({
+        participant: updatedParticipant,
+        timestamp: now,
+        synced: true,
+        source: clientSource,
+      });
     } else {
-      window.dispatchEvent(
-        new CustomEvent('attendance-absent', {
-          detail: { participant: updatedParticipant, timestamp: now, synced: true },
-        })
-      );
+      notifyAttendanceAbsent({
+        participant: updatedParticipant,
+        timestamp: now,
+        synced: true,
+      });
     }
   }
 
@@ -1649,6 +1660,7 @@ export async function updateParticipant(
     attended: newAttended,
     attendedAt: newAttendedAt,
     attendanceUpdatedAt: now,
+    source: clientSource,
   };
 
   // Envia atualização para o servidor central
@@ -2687,6 +2699,9 @@ export function initMultiDeviceSync(): () => void {
   if (localBroadcastChannel) {
     localBroadcastChannel.onmessage = (event) => {
       if (event.data?.type === 'participants_updated') {
+        window.dispatchEvent(new Event('participants-updated'));
+      } else if (event.data?.type === 'participant_updated' && event.data?.detail) {
+        window.dispatchEvent(new CustomEvent('participant-updated', { detail: event.data.detail }));
         window.dispatchEvent(new Event('participants-updated'));
       } else if (event.data?.type === 'attendance_confirmed' && event.data?.detail) {
         window.dispatchEvent(new CustomEvent('attendance-confirmed', { detail: event.data.detail }));
