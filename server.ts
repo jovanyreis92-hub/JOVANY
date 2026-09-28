@@ -70,7 +70,16 @@ function persistDeletedIdsToDisk(): void {
 }
 
 function isValidParticipant(p: any): boolean {
-  if (!p || !p.id || p.id === 'attendance-batch' || !p.fullName) {
+  if (
+    !p ||
+    !p.id ||
+    p.id === 'attendance' ||
+    p.id === 'attendance-batch' ||
+    p.id === 'delete-multiple' ||
+    p.id === 'reset' ||
+    p.id === 'batch' ||
+    !p.fullName
+  ) {
     return false;
   }
   if (deletedParticipantIds.has(p.id)) {
@@ -459,11 +468,15 @@ async function startServer() {
     });
   });
 
-  // 2. Obter lista de participantes (sempre filtra excluídos)
+  // 2. Obter lista de participantes (sempre filtra excluídos e artefatos inválidos)
   app.get('/api/participants', (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
-    participants = participants.filter((p) => p && p.id && !deletedParticipantIds.has(p.id));
+    const initialLen = participants.length;
+    participants = participants.filter(isValidParticipant);
+    if (participants.length !== initialLen) {
+      persistParticipantsToDisk(participants);
+    }
     res.json(participants);
   });
 
@@ -647,116 +660,236 @@ async function startServer() {
     }
   });
 
-  // 5. Atualizar participante existente (Cadastro, Dados Pessoais ou Status de Presença)
-  const handleUpdateParticipant = (req: express.Request, res: express.Response) => {
-    const { id } = req.params;
-    const index = participants.findIndex((p) => p.id === id);
+  // 5. Confirmação de Presença por Leitura de QR Code ou Manual (Sincronizado Multi-Rede)
+  // DEVE VIR ANTES DE /api/participants/:id PARA NÃO SER CAPTURADO COMO PARÂMETRO :id
+  app.post('/api/participants/attendance', (req, res) => {
+    const { id, codeOrMatricula, matricula, registrationNumber, attended, attendedAt, attendanceUpdatedAt, participant: incomingParticipant, source } = req.body;
+    
+    let participant: any = null;
+    if (id) {
+      participant = participants.find((p) => p.id === id);
+    }
+    if (!participant && (codeOrMatricula || matricula || registrationNumber)) {
+      participant = findParticipantByCodeOrInput(codeOrMatricula || matricula || registrationNumber);
+    }
+
     const now = new Date().toISOString();
 
-    let updated: any;
-    if (index === -1) {
-      // Se não existia ainda nesta instância da nuvem, cria o registro (resiliência entre múltiplos servidores e redes)
-      updated = {
-        ...req.body,
-        id,
-        createdAt: req.body.createdAt || now,
-        updatedAt: req.body.updatedAt || now,
-        attended: req.body.attended !== undefined ? Boolean(req.body.attended) : false,
-        attendedAt: req.body.attended ? (req.body.attendedAt || now) : null,
-        attendanceUpdatedAt: req.body.attendanceUpdatedAt || now,
-      };
-      participants.unshift(updated);
-      persistParticipantsToDisk(participants);
-      broadcastSSE('participant_added', updated);
-    } else {
-      const prev = participants[index];
-      const attendedChanged = typeof req.body.attended === 'boolean' && req.body.attended !== prev.attended;
-      const newAttended = typeof req.body.attended === 'boolean' ? req.body.attended : prev.attended;
-
-      updated = {
-        ...prev,
-        ...req.body,
-        id,
-        updatedAt: req.body.updatedAt || now,
-        attended: newAttended,
-        attendedAt: newAttended ? (req.body.attendedAt || prev.attendedAt || now) : null,
-        attendanceUpdatedAt: req.body.attendanceUpdatedAt || (attendedChanged ? now : prev.attendanceUpdatedAt || now),
-      };
-
-      participants[index] = updated;
-      persistParticipantsToDisk(participants);
-      broadcastSSE('participant_updated', updated);
-
-      if (attendedChanged) {
-        const userAgent = String(req.headers['user-agent'] || '');
-        const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
-        const updateSource = req.body?.source || (isMobileClient ? 'mobile_toggle' : 'pc_toggle');
-        const updatedWithSource = { ...updated, source: updateSource };
-        broadcastSSE('attendance_updated', updatedWithSource);
-        if (newAttended) {
-          broadcastSSE('attendance_confirmed', { participant: updatedWithSource, timestamp: updated.attendedAt, serverTime: now, source: updateSource });
-        } else {
-          broadcastSSE('attendance_absent', { participant: updatedWithSource, timestamp: now, serverTime: now, source: updateSource });
-        }
+    // Se não encontrado mas o cliente enviou o objeto completo do participante (recuperação automática instantânea)
+    if (!participant && incomingParticipant && (incomingParticipant.id || incomingParticipant.registrationNumber)) {
+      const trimmedMat = String(incomingParticipant.registrationNumber || '').replace(/\D/g, '').trim();
+      const trimmedNom = String(incomingParticipant.fullName || '').trim();
+      if (trimmedNom) {
+        participant = {
+          id: incomingParticipant.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          fullName: trimmedNom,
+          registrationNumber: trimmedMat,
+          company: incomingParticipant.company || 'Não informada',
+          eventId: incomingParticipant.eventId || 'event_1',
+          eventName: incomingParticipant.eventName || companySettings.eventName || 'COZINHA SHOW',
+          createdAt: incomingParticipant.createdAt || now,
+          attended: attended !== undefined ? Boolean(attended) : true,
+          attendedAt: attendedAt || now,
+          attendanceUpdatedAt: attendanceUpdatedAt || now,
+        };
+        participants.unshift(participant);
+        persistParticipantsToDisk(participants);
+        broadcastSSE('participant_added', participant);
       }
     }
 
-    const isPeerSync = req.headers['x-peer-sync'] === 'true';
-    if (!isPeerSync) {
-      forwardToPeerServers(`/api/participants/${id}`, 'PUT', req.body);
+    // Se não encontrado mas o código lido pelo QR continha formato ultra-compacto oficial (CP:id:mat:nome:emp)
+    if (!participant && codeOrMatricula && (String(codeOrMatricula).startsWith('CP:') || String(codeOrMatricula).startsWith('CHK:') || String(codeOrMatricula).startsWith('CP|') || String(codeOrMatricula).startsWith('CHK|'))) {
+      const separator = String(codeOrMatricula).includes('|') ? '|' : ':';
+      const parts = String(codeOrMatricula).split(separator);
+      const cId = parts[1]?.trim();
+      const cMat = parts[2]?.trim() || '';
+      let cNom = '';
+      let cEmp = 'Não informada';
+      let cEvt = companySettings.eventName || 'COZINHA SHOW';
+      try {
+        if (parts[3]) cNom = decodeURIComponent(parts[3]).trim();
+        if (parts[4]) cEmp = decodeURIComponent(parts[4]).trim();
+        if (parts[5]) cEvt = decodeURIComponent(parts[5]).trim();
+      } catch {
+        cNom = parts[3]?.trim() || '';
+        cEmp = parts[4]?.trim() || 'Não informada';
+        cEvt = parts[5]?.trim() || companySettings.eventName || 'COZINHA SHOW';
+      }
+
+      if (cNom || cMat || cId) {
+        participant = {
+          id: cId || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          fullName: cNom || `Participante ${cMat}`,
+          registrationNumber: cMat,
+          company: cEmp,
+          eventId: 'event_1',
+          eventName: cEvt,
+          createdAt: now,
+          attended: attended !== undefined ? Boolean(attended) : true,
+          attendedAt: attendedAt || now,
+          attendanceUpdatedAt: attendanceUpdatedAt || now,
+        };
+        participants.unshift(participant);
+        persistParticipantsToDisk(participants);
+        broadcastSSE('participant_added', participant);
+      }
     }
 
-    res.json({ success: true, participant: updated });
-  };
+    // Se não encontrado mas o código lido pelo QR continha os dados estruturados do crachá oficial (JSON)
+    if (!participant && codeOrMatricula) {
+      const jsonMatch = String(codeOrMatricula).match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const nom = String(parsed.nome || parsed.name || '').trim();
+          const mat = String(parsed.matricula || parsed.registrationNumber || parsed.code || '').replace(/\D/g, '').trim();
+          if (nom) {
+            participant = {
+              id: parsed.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              fullName: nom,
+              registrationNumber: mat,
+              company: parsed.empresa || parsed.company || 'Não informada',
+              eventId: parsed.evento || parsed.eventId || 'event_1',
+              eventName: companySettings.eventName || 'COZINHA SHOW',
+              createdAt: now,
+              attended: attended !== undefined ? Boolean(attended) : true,
+              attendedAt: attendedAt || now,
+              attendanceUpdatedAt: attendanceUpdatedAt || now,
+            };
+            participants.unshift(participant);
+            persistParticipantsToDisk(participants);
+            broadcastSSE('participant_added', participant);
+          }
+        } catch {}
+      }
+    }
 
-  app.put('/api/participants/:id', handleUpdateParticipant);
-  app.post('/api/participants/:id', handleUpdateParticipant);
+    // Se não encontrado mas o código lido pelo QR continha URL estruturada com dados do participante
+    if (!participant && codeOrMatricula && (String(codeOrMatricula).startsWith('http://') || String(codeOrMatricula).startsWith('https://') || String(codeOrMatricula).includes('checkin='))) {
+      try {
+        const fullUrl = String(codeOrMatricula).startsWith('http')
+          ? String(codeOrMatricula)
+          : `https://dummy.com/${String(codeOrMatricula).startsWith('/') ? String(codeOrMatricula).substring(1) : String(codeOrMatricula)}`;
+        const parsedUrl = new URL(fullUrl);
+        const urlId = parsedUrl.searchParams.get('checkin') || parsedUrl.searchParams.get('id');
+        const urlMat = parsedUrl.searchParams.get('mat') || parsedUrl.searchParams.get('matricula') || parsedUrl.searchParams.get('code') || parsedUrl.searchParams.get('registrationNumber');
+        const urlNom = parsedUrl.searchParams.get('nom') || parsedUrl.searchParams.get('nome') || parsedUrl.searchParams.get('name');
+        const urlEmp = parsedUrl.searchParams.get('emp') || parsedUrl.searchParams.get('empresa') || parsedUrl.searchParams.get('company');
 
-  // 6. Toggle presença manual (suporta Presente e Ausente sincronizado atômico em todas as redes)
-  app.post('/api/participants/:id/toggle', (req, res) => {
-    const { id } = req.params;
-    const participant = participants.find((p) => p.id === id);
+        if (urlNom && (urlId || urlMat)) {
+          participant = {
+            id: urlId || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            fullName: urlNom.trim(),
+            registrationNumber: (urlMat || '').replace(/\D/g, '').trim(),
+            company: (urlEmp || 'Não informada').trim(),
+            eventId: 'event_1',
+            eventName: companySettings.eventName || 'COZINHA SHOW',
+            createdAt: now,
+            attended: attended !== undefined ? Boolean(attended) : true,
+            attendedAt: attendedAt || now,
+            attendanceUpdatedAt: attendanceUpdatedAt || now,
+          };
+          participants.unshift(participant);
+          persistParticipantsToDisk(participants);
+          broadcastSSE('participant_added', participant);
+        }
+      } catch {}
+    }
+
     if (!participant) {
-      return res.status(404).json({ error: 'Participante não encontrado.' });
-    }
-
-    const now = new Date().toISOString();
-    let newAttended: boolean;
-    if (req.body && typeof req.body.attended === 'boolean') {
-      newAttended = req.body.attended;
-    } else {
-      newAttended = !participant.attended;
-    }
-
-    participant.attended = newAttended;
-    participant.attendedAt = newAttended ? (req.body?.attendedAt || now) : null;
-    participant.attendanceUpdatedAt = req.body?.attendanceUpdatedAt || now;
-
-    persistParticipantsToDisk(participants);
-    broadcastSSE('participant_updated', participant);
-    broadcastSSE('attendance_updated', participant);
-    const userAgent = String(req.headers['user-agent'] || '');
-    const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
-    const toggleSource = req.body?.source || (isMobileClient ? 'mobile_toggle' : 'pc_toggle');
-    if (participant.attended) {
-      broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt, serverTime: now, source: toggleSource });
-    } else {
-      broadcastSSE('attendance_absent', { participant, timestamp: now, serverTime: now, source: toggleSource });
-    }
-
-    const isPeerSync = req.headers['x-peer-sync'] === 'true';
-    if (!isPeerSync) {
-      forwardToPeerServers(`/api/participants/${id}/toggle`, 'POST', {
-        attended: participant.attended,
-        attendedAt: participant.attendedAt,
-        attendanceUpdatedAt: participant.attendanceUpdatedAt,
+      return res.status(404).json({ 
+        success: false, 
+        status: 'not_found', 
+        error: 'Participante não encontrado no sistema.',
+        message: 'Código de participante ou matrícula não encontrado. Verifique se o participante está cadastrado.' 
       });
     }
 
-    res.json({ success: true, participant });
+    const userAgent = String(req.headers['user-agent'] || '');
+    const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
+    const scanSource = source || req.body?.source || (isMobileClient ? 'mobile_qr' : 'pc_qr');
+    const participantWithSource = { ...participant, source: scanSource };
+
+    // Se o participante já estava confirmado anteriormente:
+    // NOTIFICA IMEDIATAMENTE O COMPUTADOR E DEMAIS CELULARES QUE A LEITURA FOI FEITA!
+    if (participant.attended && (attended === undefined || attended === true)) {
+      const formattedDate = participant.attendedAt
+        ? new Date(participant.attendedAt).toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+        : '';
+      
+      participant.attendanceUpdatedAt = now;
+      persistParticipantsToDisk(participants);
+
+      // Transmite SSE imediato para o computador exibir o alerta sonoro e visual
+      broadcastSSE('attendance_updated', participantWithSource);
+      broadcastSSE('attendance_confirmed', {
+        participant: participantWithSource,
+        timestamp: participant.attendedAt || now,
+        serverTime: now,
+        source: scanSource,
+        alreadyChecked: true,
+      });
+
+      console.log(`[SERVER] Presença reconfirmada via ${scanSource}: ${participant.fullName} (${participant.registrationNumber})`);
+
+      return res.json({
+        success: true,
+        status: 'already_checked',
+        participant: participantWithSource,
+        message: `Presença já confirmada anteriormente às ${formattedDate}!`,
+      });
+    }
+
+    // Marca presença (ou desmarca se explicitamente attended === false)
+    participant.attended = attended !== undefined ? Boolean(attended) : true;
+    participant.attendedAt = participant.attended ? (attendedAt || now) : null;
+    participant.attendanceUpdatedAt = attendanceUpdatedAt || now;
+
+    persistParticipantsToDisk(participants);
+    broadcastSSE('attendance_updated', participantWithSource);
+    if (participant.attended) {
+      broadcastSSE('attendance_confirmed', {
+        participant: participantWithSource,
+        timestamp: participant.attendedAt,
+        serverTime: now,
+        source: scanSource,
+      });
+    } else {
+      broadcastSSE('attendance_absent', {
+        participant: participantWithSource,
+        timestamp: now,
+        serverTime: now,
+        source: scanSource,
+      });
+    }
+
+    // Replicar imediatamente para nós peer da nuvem
+    const isPeerSync = req.headers['x-peer-sync'] === 'true';
+    if (!isPeerSync) {
+      forwardToPeerServers('/api/participants/attendance', 'POST', {
+        ...req.body,
+        attended: participant.attended,
+        attendedAt: participant.attendedAt,
+        attendanceUpdatedAt: participant.attendanceUpdatedAt,
+        source: scanSource,
+      });
+    }
+
+    console.log(`[SERVER] Status de presença atualizado via ${scanSource}: ${participant.fullName} (${participant.registrationNumber}) -> ${participant.attended ? 'PRESENTE' : 'AUSENTE'}`);
+    res.json({ 
+      success: true, 
+      status: 'success', 
+      participant: participantWithSource, 
+      message: participant.attended ? 'Presença confirmada com sucesso!' : 'Presença desmarcada (Ausente).' 
+    });
   });
 
-  // 6.1 Atualização de Presença em Lote (Suporta tanto { ids, attended } quanto { items } da fila offline)
+  // 6. Atualização de Presença em Lote (Suporta tanto { ids, attended } quanto { items } da fila offline)
   app.post('/api/participants/attendance-batch', (req, res) => {
     try {
       const now = new Date().toISOString();
@@ -843,224 +976,7 @@ async function startServer() {
     }
   });
 
-  // 7. Confirmação de Presença por Leitura de QR Code ou Manual (Sincronizado Multi-Rede)
-  app.post('/api/participants/attendance', (req, res) => {
-    const { id, codeOrMatricula, matricula, registrationNumber, attended, attendedAt, attendanceUpdatedAt, participant: incomingParticipant } = req.body;
-    
-    let participant: any = null;
-    if (id) {
-      participant = participants.find((p) => p.id === id);
-    }
-    if (!participant && (codeOrMatricula || matricula || registrationNumber)) {
-      participant = findParticipantByCodeOrInput(codeOrMatricula || matricula || registrationNumber);
-    }
-
-    const now = new Date().toISOString();
-
-    // Se não encontrado mas o cliente enviou o objeto completo do participante (recuperação automática instantânea)
-    if (!participant && incomingParticipant && (incomingParticipant.id || incomingParticipant.registrationNumber)) {
-      const trimmedMat = String(incomingParticipant.registrationNumber || '').replace(/\D/g, '').trim();
-      const trimmedNom = String(incomingParticipant.fullName || '').trim();
-      if (trimmedNom) {
-        participant = {
-          id: incomingParticipant.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          fullName: trimmedNom,
-          registrationNumber: trimmedMat,
-          company: incomingParticipant.company || 'Não informada',
-          eventId: incomingParticipant.eventId || 'event_1',
-          eventName: incomingParticipant.eventName || companySettings.eventName || 'COZINHA SHOW',
-          createdAt: incomingParticipant.createdAt || now,
-          attended: attended !== undefined ? Boolean(attended) : true,
-          attendedAt: attendedAt || now,
-          attendanceUpdatedAt: attendanceUpdatedAt || now,
-        };
-        participants.unshift(participant);
-        persistParticipantsToDisk(participants);
-        broadcastSSE('participant_added', participant);
-      }
-    }
-
-    // Se não encontrado mas o código lido pelo QR continha formato ultra-compacto oficial (CP:id:mat:nome:emp)
-    if (!participant && codeOrMatricula && (String(codeOrMatricula).startsWith('CP:') || String(codeOrMatricula).startsWith('CHK:'))) {
-      const parts = String(codeOrMatricula).split(':');
-      const cId = parts[1]?.trim();
-      const cMat = parts[2]?.trim() || '';
-      let cNom = '';
-      let cEmp = 'Não informada';
-      try {
-        if (parts[3]) cNom = decodeURIComponent(parts[3]).trim();
-        if (parts[4]) cEmp = decodeURIComponent(parts[4]).trim();
-      } catch {
-        cNom = parts[3]?.trim() || '';
-        cEmp = parts[4]?.trim() || 'Não informada';
-      }
-
-      if (cNom || cMat || cId) {
-        participant = {
-          id: cId || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          fullName: cNom || `Participante ${cMat}`,
-          registrationNumber: cMat,
-          company: cEmp,
-          eventId: 'event_1',
-          eventName: companySettings.eventName || 'COZINHA SHOW',
-          createdAt: now,
-          attended: attended !== undefined ? Boolean(attended) : true,
-          attendedAt: attendedAt || now,
-          attendanceUpdatedAt: attendanceUpdatedAt || now,
-        };
-        participants.unshift(participant);
-        persistParticipantsToDisk(participants);
-        broadcastSSE('participant_added', participant);
-      }
-    }
-
-    // Se não encontrado mas o código lido pelo QR continha os dados estruturados do crachá oficial (JSON)
-    if (!participant && codeOrMatricula) {
-      const jsonMatch = String(codeOrMatricula).match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          const nom = String(parsed.nome || parsed.name || '').trim();
-          const mat = String(parsed.matricula || parsed.registrationNumber || parsed.code || '').replace(/\D/g, '').trim();
-          if (nom) {
-            participant = {
-              id: parsed.id || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-              fullName: nom,
-              registrationNumber: mat,
-              company: parsed.empresa || parsed.company || 'Não informada',
-              eventId: parsed.evento || parsed.eventId || 'event_1',
-              eventName: companySettings.eventName || 'COZINHA SHOW',
-              createdAt: now,
-              attended: attended !== undefined ? Boolean(attended) : true,
-              attendedAt: attendedAt || now,
-              attendanceUpdatedAt: attendanceUpdatedAt || now,
-            };
-            participants.unshift(participant);
-            persistParticipantsToDisk(participants);
-            broadcastSSE('participant_added', participant);
-          }
-        } catch {}
-      }
-    }
-
-    // Se não encontrado mas o código lido pelo QR continha URL estruturada com dados do participante
-    if (!participant && codeOrMatricula && (String(codeOrMatricula).startsWith('http://') || String(codeOrMatricula).startsWith('https://') || String(codeOrMatricula).includes('checkin='))) {
-      try {
-        const fullUrl = String(codeOrMatricula).startsWith('http')
-          ? String(codeOrMatricula)
-          : `https://dummy.com/${String(codeOrMatricula).startsWith('/') ? String(codeOrMatricula).substring(1) : String(codeOrMatricula)}`;
-        const parsedUrl = new URL(fullUrl);
-        const urlId = parsedUrl.searchParams.get('checkin') || parsedUrl.searchParams.get('id');
-        const urlMat = parsedUrl.searchParams.get('mat') || parsedUrl.searchParams.get('matricula') || parsedUrl.searchParams.get('code') || parsedUrl.searchParams.get('registrationNumber');
-        const urlNom = parsedUrl.searchParams.get('nom') || parsedUrl.searchParams.get('nome') || parsedUrl.searchParams.get('name');
-        const urlEmp = parsedUrl.searchParams.get('emp') || parsedUrl.searchParams.get('empresa') || parsedUrl.searchParams.get('company');
-
-        if (urlNom && (urlId || urlMat)) {
-          participant = {
-            id: urlId || `part_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            fullName: urlNom.trim(),
-            registrationNumber: (urlMat || '').replace(/\D/g, '').trim(),
-            company: (urlEmp || 'Não informada').trim(),
-            eventId: 'event_1',
-            eventName: companySettings.eventName || 'COZINHA SHOW',
-            createdAt: now,
-            attended: attended !== undefined ? Boolean(attended) : true,
-            attendedAt: attendedAt || now,
-            attendanceUpdatedAt: attendanceUpdatedAt || now,
-          };
-          participants.unshift(participant);
-          persistParticipantsToDisk(participants);
-          broadcastSSE('participant_added', participant);
-        }
-      } catch {}
-    }
-
-    if (!participant) {
-      return res.status(404).json({ 
-        success: false, 
-        status: 'not_found', 
-        error: 'Participante não encontrado no sistema.',
-        message: 'Código de participante ou matrícula não encontrado. Verifique se o participante está cadastrado.' 
-      });
-    }
-
-    if (attended === undefined && participant.attended) {
-      const formattedDate = participant.attendedAt
-        ? new Date(participant.attendedAt).toLocaleTimeString('pt-BR', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          })
-        : '';
-      return res.json({
-        success: true,
-        status: 'already_checked',
-        participant,
-        message: `Presença já confirmada anteriormente às ${formattedDate}!`,
-      });
-    }
-
-    participant.attended = attended !== undefined ? Boolean(attended) : true;
-    participant.attendedAt = participant.attended ? (attendedAt || now) : null;
-    participant.attendanceUpdatedAt = attendanceUpdatedAt || now;
-
-    persistParticipantsToDisk(participants);
-    const userAgent = String(req.headers['user-agent'] || '');
-    const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
-    const scanSource = req.body?.source || (isMobileClient ? 'mobile_qr' : 'pc_qr');
-    const participantWithSource = { ...participant, source: scanSource };
-    broadcastSSE('attendance_updated', participantWithSource);
-    if (participant.attended) {
-      broadcastSSE('attendance_confirmed', { participant: participantWithSource, timestamp: participant.attendedAt, serverTime: now, source: scanSource });
-    } else {
-      broadcastSSE('attendance_absent', { participant: participantWithSource, timestamp: now, serverTime: now, source: scanSource });
-    }
-
-    // Replicar imediatamente para nós peer da nuvem
-    const isPeerSync = req.headers['x-peer-sync'] === 'true';
-    if (!isPeerSync) {
-      forwardToPeerServers('/api/participants/attendance', 'POST', {
-        ...req.body,
-        attended: participant.attended,
-        attendedAt: participant.attendedAt,
-        attendanceUpdatedAt: participant.attendanceUpdatedAt,
-      });
-    }
-
-    console.log(`[SERVER] Status de presença atualizado: ${participant.fullName} (${participant.registrationNumber}) -> ${participant.attended ? 'PRESENTE' : 'AUSENTE'}`);
-    res.json({ 
-      success: true, 
-      status: 'success', 
-      participant, 
-      message: participant.attended ? 'Presença confirmada com sucesso!' : 'Presença desmarcada (Ausente).' 
-    });
-  });
-
-  // 8. Excluir participante (registra tombstone definitivo para impedir re-surgimento)
-  app.delete('/api/participants/:id', (req, res) => {
-    const { id } = req.params;
-    if (!id) return res.status(400).json({ error: 'ID do participante obrigatório.' });
-
-    // Registra o ID na lista persistente de excluídos (tombstones)
-    deletedParticipantIds.add(id);
-    persistDeletedIdsToDisk();
-
-    const initialLength = participants.length;
-    participants = participants.filter((p) => p.id !== id);
-
-    persistParticipantsToDisk(participants);
-    broadcastSSE('participant_deleted', id);
-
-    const isPeerSync = req.headers['x-peer-sync'] === 'true';
-    if (!isPeerSync) {
-      forwardToPeerServers(`/api/participants/${id}`, 'DELETE');
-    }
-
-    console.log(`[SERVER] Participante ${id} excluído com sucesso e adicionado ao registro de exclusões.`);
-    res.json({ success: true, id });
-  });
-
-  // 9. Excluir múltiplos participantes
+  // 7. Excluir múltiplos participantes (ESTÁTICA DEVE VIR ANTES DE :id)
   app.post('/api/participants/delete-multiple', (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -1089,7 +1005,7 @@ async function startServer() {
     res.json({ success: true, deletedCount: initialLength - participants.length, ids });
   });
 
-  // 10. Resetar participantes
+  // 8. Resetar participantes (ESTÁTICA DEVE VIR ANTES DE :id)
   app.post('/api/participants/reset', (req, res) => {
     const newItems = Array.isArray(req.body?.participants) ? req.body.participants : [];
     
@@ -1110,6 +1026,145 @@ async function startServer() {
     persistParticipantsToDisk(participants);
     broadcastSSE('reset', participants);
     res.json({ success: true, count: participants.length });
+  });
+
+  // 9. Toggle presença manual (específico de participante por ID)
+  app.post('/api/participants/:id/toggle', (req, res) => {
+    const { id } = req.params;
+    const participant = participants.find((p) => p.id === id);
+    if (!participant) {
+      return res.status(404).json({ error: 'Participante não encontrado.' });
+    }
+
+    const now = new Date().toISOString();
+    let newAttended: boolean;
+    if (req.body && typeof req.body.attended === 'boolean') {
+      newAttended = req.body.attended;
+    } else {
+      newAttended = !participant.attended;
+    }
+
+    participant.attended = newAttended;
+    participant.attendedAt = newAttended ? (req.body?.attendedAt || now) : null;
+    participant.attendanceUpdatedAt = req.body?.attendanceUpdatedAt || now;
+
+    persistParticipantsToDisk(participants);
+    broadcastSSE('participant_updated', participant);
+    broadcastSSE('attendance_updated', participant);
+    const userAgent = String(req.headers['user-agent'] || '');
+    const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
+    const toggleSource = req.body?.source || (isMobileClient ? 'mobile_toggle' : 'pc_toggle');
+    if (participant.attended) {
+      broadcastSSE('attendance_confirmed', { participant, timestamp: participant.attendedAt, serverTime: now, source: toggleSource });
+    } else {
+      broadcastSSE('attendance_absent', { participant, timestamp: now, serverTime: now, source: toggleSource });
+    }
+
+    const isPeerSync = req.headers['x-peer-sync'] === 'true';
+    if (!isPeerSync) {
+      forwardToPeerServers(`/api/participants/${id}/toggle`, 'POST', {
+        attended: participant.attended,
+        attendedAt: participant.attendedAt,
+        attendanceUpdatedAt: participant.attendanceUpdatedAt,
+      });
+    }
+
+    res.json({ success: true, participant });
+  });
+
+  // 10. Atualizar participante existente (Cadastro, Dados Pessoais ou Status de Presença)
+  const handleUpdateParticipant = (req: express.Request, res: express.Response) => {
+    const { id } = req.params;
+    if (id === 'attendance' || id === 'attendance-batch' || id === 'delete-multiple' || id === 'reset' || id === 'batch') {
+      return res.status(404).json({ error: 'Endpoint não encontrado.' });
+    }
+
+    const index = participants.findIndex((p) => p.id === id);
+    const now = new Date().toISOString();
+
+    let updated: any;
+    if (index === -1) {
+      // Se não existia ainda nesta instância da nuvem, cria o registro (resiliência entre múltiplos servidores e redes)
+      updated = {
+        ...req.body,
+        id,
+        createdAt: req.body.createdAt || now,
+        updatedAt: req.body.updatedAt || now,
+        attended: req.body.attended !== undefined ? Boolean(req.body.attended) : false,
+        attendedAt: req.body.attended ? (req.body.attendedAt || now) : null,
+        attendanceUpdatedAt: req.body.attendanceUpdatedAt || now,
+      };
+      participants.unshift(updated);
+      persistParticipantsToDisk(participants);
+      broadcastSSE('participant_added', updated);
+    } else {
+      const prev = participants[index];
+      const attendedChanged = typeof req.body.attended === 'boolean' && req.body.attended !== prev.attended;
+      const newAttended = typeof req.body.attended === 'boolean' ? req.body.attended : prev.attended;
+
+      updated = {
+        ...prev,
+        ...req.body,
+        id,
+        updatedAt: req.body.updatedAt || now,
+        attended: newAttended,
+        attendedAt: newAttended ? (req.body.attendedAt || prev.attendedAt || now) : null,
+        attendanceUpdatedAt: req.body.attendanceUpdatedAt || (attendedChanged ? now : prev.attendanceUpdatedAt || now),
+      };
+
+      participants[index] = updated;
+      persistParticipantsToDisk(participants);
+      broadcastSSE('participant_updated', updated);
+
+      if (attendedChanged) {
+        const userAgent = String(req.headers['user-agent'] || '');
+        const isMobileClient = /mobile|android|iphone|ipad/i.test(userAgent);
+        const updateSource = req.body?.source || (isMobileClient ? 'mobile_toggle' : 'pc_toggle');
+        const updatedWithSource = { ...updated, source: updateSource };
+        broadcastSSE('attendance_updated', updatedWithSource);
+        if (newAttended) {
+          broadcastSSE('attendance_confirmed', { participant: updatedWithSource, timestamp: updated.attendedAt, serverTime: now, source: updateSource });
+        } else {
+          broadcastSSE('attendance_absent', { participant: updatedWithSource, timestamp: now, serverTime: now, source: updateSource });
+        }
+      }
+    }
+
+    const isPeerSync = req.headers['x-peer-sync'] === 'true';
+    if (!isPeerSync) {
+      forwardToPeerServers(`/api/participants/${id}`, 'PUT', req.body);
+    }
+
+    res.json({ success: true, participant: updated });
+  };
+
+  app.put('/api/participants/:id', handleUpdateParticipant);
+  app.post('/api/participants/:id', handleUpdateParticipant);
+
+  // 11. Excluir participante (registra tombstone definitivo para impedir re-surgimento)
+  app.delete('/api/participants/:id', (req, res) => {
+    const { id } = req.params;
+    if (!id || id === 'attendance' || id === 'attendance-batch' || id === 'delete-multiple' || id === 'reset' || id === 'batch') {
+      return res.status(400).json({ error: 'ID do participante obrigatório.' });
+    }
+
+    // Registra o ID na lista persistente de excluídos (tombstones)
+    deletedParticipantIds.add(id);
+    persistDeletedIdsToDisk();
+
+    const initialLength = participants.length;
+    participants = participants.filter((p) => p.id !== id);
+
+    persistParticipantsToDisk(participants);
+    broadcastSSE('participant_deleted', id);
+
+    const isPeerSync = req.headers['x-peer-sync'] === 'true';
+    if (!isPeerSync) {
+      forwardToPeerServers(`/api/participants/${id}`, 'DELETE');
+    }
+
+    console.log(`[SERVER] Participante ${id} excluído com sucesso e adicionado ao registro de exclusões.`);
+    res.json({ success: true, id });
   });
 
   // 11. Configurações da Empresa

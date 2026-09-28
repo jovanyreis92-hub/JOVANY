@@ -2127,7 +2127,8 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
           })
         : '';
       
-      // Garante sincronia mesmo se já marcado
+      // Garante sincronia mesmo se já marcado informando a origem
+      const clientSource = getClientDeviceSource(false);
       fetch('/api/participants/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2136,7 +2137,8 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
           codeOrMatricula: cleanInput,
           attended: true,
           attendedAt: participant.attendedAt,
-          attendanceUpdatedAt: participant.attendanceUpdatedAt || participant.attendedAt,
+          attendanceUpdatedAt: new Date().toISOString(),
+          source: clientSource,
         }),
       }).catch(() => {});
 
@@ -2149,7 +2151,8 @@ export async function markAttendanceByCode(codeOrMatricula: string): Promise<{
             codeOrMatricula: cleanInput,
             attended: true,
             attendedAt: participant!.attendedAt,
-            attendanceUpdatedAt: participant!.attendanceUpdatedAt || participant!.attendedAt,
+            attendanceUpdatedAt: new Date().toISOString(),
+            source: clientSource,
           }),
         }).catch(() => {});
       });
@@ -2942,6 +2945,27 @@ export function initMultiDeviceSync(): () => void {
           
           if (addedCount > 0 || hasAttendanceChanges || merged.length !== local.length) {
             saveParticipants(merged);
+            window.dispatchEvent(new Event('participants-updated'));
+          }
+
+          // Se houve alteração de presença confirmada no servidor, dispara notificação instantânea para o computador
+          if (hasAttendanceChanges) {
+            serverList.forEach((sp) => {
+              if (sp && sp.attended) {
+                const lp = local.find((p) => p.id === sp.id || (p.registrationNumber && p.registrationNumber === sp.registrationNumber));
+                const isNewAttendance = !lp || !lp.attended;
+                const isNewerTime = lp && sp.attendanceUpdatedAt && (!lp.attendanceUpdatedAt || new Date(sp.attendanceUpdatedAt).getTime() > new Date(lp.attendanceUpdatedAt).getTime());
+                if (isNewAttendance || isNewerTime) {
+                  window.dispatchEvent(new CustomEvent('participant-updated', { detail: sp }));
+                  notifyAttendanceConfirmed({
+                    participant: sp,
+                    timestamp: sp.attendedAt,
+                    synced: true,
+                    source: (sp as any).source || 'mobile_qr',
+                  });
+                }
+              }
+            });
           }
 
           if (newForServer.length > 0) {

@@ -7,8 +7,8 @@
     "eventId": "event_1",
     "eventName": "COZINHA SHOW",
     "createdAt": "2026-09-24T21:16:21.733Z",
-    "attended": false,
-    "attendedAt": null,
-    "attendanceUpdatedAt": "2026-09-24T21:42:19.917Z"
+    "attended": true,
+    "attendedAt": "2026-09-28T20:33:07.307Z",
+    "attendanceUpdatedAt": "2026-09-28T20:34:12.818Z"
   }
 ]
